@@ -1,8 +1,10 @@
 import "server-only";
+import { headers } from "next/headers";
 import { after } from "next/server";
 import type { ZodError } from "zod";
 import { getLogRepository } from "@/lib/logs/repository";
 import type { LogLevel, LogSource } from "@/lib/logs/types";
+import { createRateLimiter } from "@/lib/rate-limit";
 import { PRIMARY_WORKSHOP_ID } from "@/lib/workshops/shared";
 
 /*
@@ -11,6 +13,8 @@ import { PRIMARY_WORKSHOP_ID } from "@/lib/workshops/shared";
  * - Nunca lanza: un fallo al registrar no puede romper la acción que falló.
  * - No bloquea la respuesta: persiste con after() (un insert por evento).
  * - Sanea la metadata: oculta secretos y recorta data URLs y textos largos.
+ * - Limita la frecuencia por sesión / IP (token bucket) y recorta mensaje y
+ *   stack por bytes antes de llamar a la RPC, para no saturar la base de datos.
  */
 
 type LogInput = {
@@ -23,14 +27,53 @@ type LogInput = {
   workshopId?: string | null;
 };
 
-const MAX_MESSAGE = 2000;
-const MAX_STACK = 20_000;
+/** Topes en bytes UTF-8 antes de llamar a write_system_log (la tabla aplica los suyos igual). */
+export const LOG_BYTE_LIMITS = {
+  message: 2000,
+  stack: 20_000,
+  /** Lo que envía el navegador es input no confiable: más corto. */
+  clientMessage: 2000,
+  clientStack: 2000,
+} as const;
 const MAX_STRING = 500;
 const MAX_METADATA_CHARS = 16_000;
 const SECRET_KEY = /pass(word)?|token|secret|api[-_]?key|authorization|cookie/i;
 
 function truncate(text: string, max: number) {
   return text.length > max ? `${text.slice(0, max)}… [+${text.length - max} caracteres]` : text;
+}
+
+/** Recorta a `maxBytes` en UTF-8 sin partir caracteres multibyte (ñ, tildes, emoji). */
+export function truncateBytes(text: string, maxBytes: number): string {
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.length <= maxBytes) return text;
+  const suffix = ` … [recortado: ${bytes.length} bytes]`;
+  const room = Math.max(0, maxBytes - new TextEncoder().encode(suffix).length);
+  // Un corte a mitad de carácter decodifica como U+FFFD: se descarta.
+  const head = new TextDecoder().decode(bytes.slice(0, room)).replace(/�+$/, "");
+  return head + suffix;
+}
+
+/** Errores del navegador: 5 por minuto por sesión / IP y 60 por minuto en total. */
+const clientPerKey = createRateLimiter("logs:client", { capacity: 5, windowMs: 60_000 });
+const clientGlobal = createRateLimiter("logs:client:global", { capacity: 60, windowMs: 60_000 });
+/** Eventos del servidor: 30 por minuto por sesión / IP (p. ej. un bot enviando formularios inválidos). */
+const serverPerKey = createRateLimiter("logs:server", { capacity: 30, windowMs: 60_000 });
+
+function takeLogToken(source: LogSource, key: string) {
+  if (source !== "client_error") return serverPerKey.take(key);
+  const perKey = clientPerKey.take(key);
+  return perKey.allowed ? clientGlobal.take("global") : perKey;
+}
+
+/** IP del cliente según el proxy (Vercel / Supabase Edge envían x-forwarded-for). */
+async function clientIp() {
+  try {
+    const h = await headers();
+    return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "desconocida";
+  } catch {
+    return "desconocida";
+  }
 }
 
 /** Copia apta para JSON: sin secretos, sin data URLs completas, con profundidad y tamaño acotados. */
@@ -74,37 +117,51 @@ function describeError(error: unknown): { message: string; stack: string | null;
 
 /** Quién y en qué taller: la sesión actual (import diferido para evitar ciclos con auth). */
 async function sessionContext() {
+  const ip = await clientIp();
   try {
     const { getCurrentProfile } = await import("@/lib/auth");
     const profile = await getCurrentProfile();
-    if (!profile) return { workshopId: PRIMARY_WORKSHOP_ID, user: null };
+    // Clave del rate limit: la sesión si la hay; si no, la IP.
+    if (!profile) return { workshopId: PRIMARY_WORKSHOP_ID, user: null, rateKey: `ip:${ip}` };
     return {
       // Público (reservas, tienda) y staff sin taller: sus datos son del taller principal.
       workshopId: profile.support?.workshopId ?? profile.workshopId ?? (profile.role === "superadmin" ? null : PRIMARY_WORKSHOP_ID),
       user: { id: profile.id, email: profile.email, role: profile.role, support: Boolean(profile.support) },
+      rateKey: `user:${profile.id}`,
     };
   } catch {
-    return { workshopId: null, user: null };
+    return { workshopId: null, user: null, rateKey: `ip:${ip}` };
   }
 }
 
 async function persist(input: LogInput, stack: string | null, errorInfo: ReturnType<typeof describeError> | null) {
   try {
     const ctx = await sessionContext();
+    const source = input.source ?? "server_action";
+    const rate = takeLogToken(source, ctx.rateKey);
+    if (!rate.allowed) {
+      // Descartado sin tocar la base de datos; se avisa en consola una vez por racha.
+      if (rate.firstDenied) console.warn(`[logger] Rate limit (${source}) alcanzado para ${ctx.rateKey}: se descartan eventos`);
+      return;
+    }
+
     let metadata = sanitize({
       ...(input.metadata ?? {}),
       ...(errorInfo && Object.keys(errorInfo.details).length ? { error: errorInfo.details } : {}),
       ...(ctx.user ? { user: ctx.user } : {}),
+      // Cuántos eventos de esta sesión / IP se descartaron antes de este.
+      ...(rate.denied ? { rate_limited_before: rate.denied } : {}),
     }) as Record<string, unknown>;
     const serialized = JSON.stringify(metadata);
     if (serialized.length > MAX_METADATA_CHARS) metadata = { truncated: true, preview: serialized.slice(0, MAX_METADATA_CHARS) };
 
+    const client = source === "client_error";
     await getLogRepository().insert({
       workshop_id: input.workshopId === undefined ? ctx.workshopId : input.workshopId,
       level: input.level,
-      source: input.source ?? "server_action",
-      message: truncate(input.message, MAX_MESSAGE),
-      stack_trace: stack ? truncate(stack, MAX_STACK) : null,
+      source,
+      message: truncateBytes(input.message, client ? LOG_BYTE_LIMITS.clientMessage : LOG_BYTE_LIMITS.message),
+      stack_trace: stack ? truncateBytes(stack, client ? LOG_BYTE_LIMITS.clientStack : LOG_BYTE_LIMITS.stack) : null,
       metadata,
     });
   } catch (err) {

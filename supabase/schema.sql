@@ -2659,6 +2659,11 @@ create table if not exists public.system_logs (
 create index if not exists system_logs_workshop_created_idx on public.system_logs (workshop_id, created_at desc);
 create index if not exists system_logs_level_created_idx on public.system_logs (level, created_at desc);
 
+-- Quién llamó a write_system_log (null = anon): base del rate limit en SQL.
+alter table public.system_logs add column if not exists created_by uuid;
+create index if not exists system_logs_created_by_idx on public.system_logs (created_by, created_at desc);
+create index if not exists system_logs_anon_created_idx on public.system_logs (created_at desc) where created_by is null;
+
 alter table public.system_logs enable row level security;
 
 drop policy if exists "system_logs: superadmin read" on public.system_logs;
@@ -2667,7 +2672,11 @@ create policy "system_logs: superadmin read" on public.system_logs
   using (public.is_superadmin());
 
 -- Escritura atómica. También para anon: los errores del agendamiento público y
--- la tienda se registran igual (con los límites de tamaño de la tabla).
+-- la tienda se registran igual. Como la clave anon es pública, cualquiera podría
+-- llamar la RPC directo (sin pasar por el rate limit de src/lib/logger.ts), así
+-- que aquí se aplica un tope propio y los excedentes se descartan en silencio:
+--   · usuario autenticado: 60 logs/min (5/min de client_error)
+--   · anon, en total:      120 logs/min (20/min de client_error)
 create or replace function public.write_system_log(
   p_level       text,
   p_source      text,
@@ -2683,20 +2692,37 @@ set search_path = public
 as $$
 declare
   v_metadata jsonb := coalesce(p_metadata, '{}'::jsonb);
+  v_caller   uuid  := auth.uid();
+  v_source   text  := case when p_source in ('server_action', 'api', 'client_error') then p_source else 'server_action' end;
+  v_recent   integer;
+  v_client   integer;
 begin
+  select count(*), count(*) filter (where source = 'client_error')
+    into v_recent, v_client
+    from public.system_logs
+   where created_at > now() - interval '1 minute'
+     and (created_by = v_caller or (v_caller is null and created_by is null));
+
+  if v_recent >= (case when v_caller is null then 120 else 60 end)
+     or (v_source = 'client_error' and v_client >= (case when v_caller is null then 20 else 5 end)) then
+    return;  -- sobre el tope: se descarta sin error (el logger nunca debe fallar)
+  end if;
+
   if jsonb_typeof(v_metadata) <> 'object' or octet_length(v_metadata::text) > 32768 then
     v_metadata := jsonb_build_object('truncated', true);
   end if;
 
-  insert into public.system_logs (workshop_id, level, source, message, stack_trace, metadata)
+  insert into public.system_logs (workshop_id, level, source, message, stack_trace, metadata, created_by)
   values (
     -- Un id de taller inexistente no debe hacer fallar el registro del error.
     (select id from public.workshops where id = p_workshop_id),
     case when p_level in ('info', 'warn', 'error') then p_level else 'error' end,
-    case when p_source in ('server_action', 'api', 'client_error') then p_source else 'server_action' end,
+    v_source,
     left(coalesce(nullif(trim(p_message), ''), '(sin mensaje)'), 2000),
-    left(p_stack_trace, 20000),
-    v_metadata
+    -- client_error es input del navegador: stack más corto.
+    left(p_stack_trace, case when v_source = 'client_error' then 2000 else 20000 end),
+    v_metadata,
+    v_caller
   );
 end;
 $$;

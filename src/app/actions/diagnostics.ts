@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { getCurrentProfile, requireSuperadmin } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/env";
-import { logEvent } from "@/lib/logger";
+import { LOG_BYTE_LIMITS, logEvent, truncateBytes } from "@/lib/logger";
 import { getLogRepository } from "@/lib/logs/repository";
 import type { TenantDiagnostics } from "@/lib/logs/types";
 import { getWorkshopRepository } from "@/lib/workshops/repository";
@@ -41,11 +41,30 @@ export async function getTenantDiagnostics(workshopId: string): Promise<TenantDi
   };
 }
 
+/** Por encima de esto el payload se descarta sin procesarlo (claramente no es un error real). */
+const CLIENT_HARD_MAX = 200_000;
+
+/** Input del navegador: se recorta por bytes (no se rechaza) para conservar el inicio del error. */
 const clientErrorSchema = z.object({
-  message: z.string().max(2000),
-  stack: z.string().max(20_000).nullish(),
-  digest: z.string().max(100).nullish(),
-  url: z.string().max(500).nullish(),
+  message: z
+    .string()
+    .max(CLIENT_HARD_MAX)
+    .transform((v) => truncateBytes(v, LOG_BYTE_LIMITS.clientMessage)),
+  stack: z
+    .string()
+    .max(CLIENT_HARD_MAX)
+    .nullish()
+    .transform((v) => (v ? truncateBytes(v, LOG_BYTE_LIMITS.clientStack) : null)),
+  digest: z
+    .string()
+    .max(CLIENT_HARD_MAX)
+    .nullish()
+    .transform((v) => (v ? v.slice(0, 100) : null)),
+  url: z
+    .string()
+    .max(CLIENT_HARD_MAX)
+    .nullish()
+    .transform((v) => (v ? v.slice(0, 500) : null)),
 });
 
 /** Error de render en el navegador (error boundary del panel). Solo sesiones del staff. */

@@ -5,9 +5,19 @@ import { RotateCcw, TriangleAlert } from "lucide-react";
 import { reportClientError } from "@/app/actions/diagnostics";
 import { Button } from "@/components/ui/button";
 
+/**
+ * Errores ya reportados en esta pestaña: un mismo error que se repite al
+ * reintentar o re-renderizar se envía una sola vez (el servidor además limita
+ * a 5 por minuto por sesión).
+ */
+const reported = new Set<string>();
+
 /** Error inesperado en el panel: se reporta a system_logs (source client_error) y se ofrece reintentar. */
 export default function DashboardError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
+    const key = error.digest ?? `${error.message}|${window.location.pathname}`;
+    if (reported.has(key)) return;
+    reported.add(key);
     void reportClientError({
       message: error.message || "Error sin mensaje",
       stack: error.stack ?? null,
