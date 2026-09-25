@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { failure, success, validationFailure, type ActionResult } from "@/lib/action-result";
 import { denyStaffWrite, requireStaff } from "@/lib/auth";
+import { logActionError } from "@/lib/logger";
 import { getInventoryRepository } from "@/lib/inventory/repository";
 import type { Product } from "@/lib/inventory/types";
 import { getWorkOrderRepository } from "@/lib/orders/repository";
@@ -36,7 +37,7 @@ function handleError<T>(error: unknown): ActionResult<T> {
   if (error instanceof WorkOrderError) {
     return failure(error.message, error.field ? { [error.field]: [error.message] } : undefined);
   }
-  console.error("[orders action]", error);
+  logActionError("orders action", error);
   return failure("Ocurrió un error inesperado. Intenta de nuevo.");
 }
 

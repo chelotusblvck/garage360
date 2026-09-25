@@ -1,4 +1,5 @@
 import "server-only";
+import { logActionError } from "@/lib/logger";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { taxRateFromPercent } from "./shared";
@@ -14,7 +15,7 @@ const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
 function fail(error: PostgrestError): never {
   if (error.code === "23514") throw new WorkshopError("Algún dato no cumple el formato esperado");
   if (error.code === "42501") throw new WorkshopError("No tienes permisos para esta operación");
-  console.error("[workshops] Supabase error", error);
+  logActionError("workshops · Supabase", error);
   throw new WorkshopError("No se pudo completar la operación. Intenta de nuevo.");
 }
 

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { failure, success, validationFailure, type ActionResult } from "@/lib/action-result";
 import { requireWorkshopAdmin } from "@/lib/auth";
+import { logActionError, logEvent } from "@/lib/logger";
 import { onboardingSchema } from "@/lib/validations/schemas";
 import { getWorkshopRepository } from "@/lib/workshops/repository";
 import { WorkshopError } from "@/lib/workshops/types";
@@ -20,10 +21,11 @@ export async function completeOnboarding(data: unknown): Promise<ActionResult<nu
     await getWorkshopRepository().completeOnboarding(profile.workshopId, parsed.data);
   } catch (error) {
     if (error instanceof WorkshopError) return failure(error.message);
-    console.error("[onboarding action]", error);
+    logActionError("onboarding action", error);
     return failure("No se pudo guardar la configuración. Intenta de nuevo.");
   }
 
+  logEvent({ level: "info", message: "Onboarding completado", metadata: { staff: parsed.data.staff.length } });
   // Nombre, tarifas e IVA se ven en todo el panel y en los comprobantes.
   revalidatePath("/", "layout");
   return success(null);

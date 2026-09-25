@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { failure, success, validationFailure, type ActionResult } from "@/lib/action-result";
 import { denyStaffWrite, getCurrentWorkshop, requireStaff } from "@/lib/auth";
+import { logActionError } from "@/lib/logger";
 import { loadCatalog, type Catalog } from "@/lib/sales/catalog";
 import { getSalesRepository } from "@/lib/sales/repository";
 import { summarizeSales } from "@/lib/sales/shared";
@@ -27,7 +28,7 @@ function handleError<T>(error: unknown): ActionResult<T> {
   if (error instanceof SalesError) {
     return failure(error.message, error.field ? { [error.field]: [error.message] } : undefined);
   }
-  console.error("[pos action]", error);
+  logActionError("pos action", error);
   return failure("Ocurrió un error inesperado. Intenta de nuevo.");
 }
 

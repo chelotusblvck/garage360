@@ -29,7 +29,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         badges={{ "/dashboard/inventory": lowCount + outCount }}
       />
       <SidebarInset>
-        {profile.support ? <SupportBanner workshopName={profile.support.workshopName} /> : null}
+        {profile.support ? <SupportBanner support={profile.support} /> : null}
         <DashboardHeader isDemo={profile.isDemo} />
         <div className="mx-auto w-full max-w-7xl flex-1 p-4 md:p-6">{children}</div>
       </SidebarInset>

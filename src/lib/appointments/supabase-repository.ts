@@ -1,4 +1,5 @@
 import "server-only";
+import { logActionError } from "@/lib/logger";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { formatFolio } from "@/lib/orders/workflow";
 import { createClient } from "@/lib/supabase/server";
@@ -66,7 +67,7 @@ function fail(error: PostgrestError): never {
     throw new AppointmentError(msg, field);
   }
   if (error.code === "PGRST116") throw new AppointmentError("Cita no encontrada");
-  console.error("[appointments] Supabase error", error);
+  logActionError("appointments · Supabase", error);
   throw new AppointmentError("No se pudo completar la operación. Intenta de nuevo.");
 }
 

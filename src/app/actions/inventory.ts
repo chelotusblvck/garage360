@@ -9,6 +9,7 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import { denyStaffWrite, requireStaff } from "@/lib/auth";
+import { logActionError } from "@/lib/logger";
 import { getInventoryRepository } from "@/lib/inventory/repository";
 import {
   InventoryError,
@@ -38,7 +39,7 @@ function handleError<T>(error: unknown): ActionResult<T> {
   if (error instanceof InventoryError) {
     return failure(error.message, error.field ? { [error.field]: [error.message] } : undefined);
   }
-  console.error("[inventory action]", error);
+  logActionError("inventory action", error);
   return failure("Ocurrió un error inesperado. Intenta de nuevo.");
 }
 

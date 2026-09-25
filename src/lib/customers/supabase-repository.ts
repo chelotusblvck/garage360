@@ -1,4 +1,5 @@
 import "server-only";
+import { logActionError } from "@/lib/logger";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { sanitizeSearch } from "@/lib/inventory/shared";
 import { formatFolio } from "@/lib/orders/workflow";
@@ -38,7 +39,7 @@ function fail(error: PostgrestError): never {
   if (error.code === "23514") throw new CustomerError("Algún dato no cumple el formato esperado");
   if (error.code === "42501") throw new CustomerError("No tienes permisos para esta operación");
   if (error.code === "PGRST116") throw new CustomerError("Registro no encontrado");
-  console.error("[customers] Supabase error", error);
+  logActionError("customers · Supabase", error);
   throw new CustomerError("No se pudo completar la operación. Intenta de nuevo.");
 }
 
@@ -82,7 +83,7 @@ async function withSignedUrls(
     .from(BUCKET)
     .createSignedUrls(rows.map((r) => String(r.storage_path)), SIGNED_URL_TTL);
   if (error) {
-    console.error("[customers] Storage error", error);
+    logActionError("customers · Storage", error);
     throw new CustomerError("No se pudieron cargar las fotos");
   }
   const urlByPath = new Map(data.map((d) => [d.path, d.signedUrl]));
@@ -269,7 +270,7 @@ export const supabaseCustomerRepository: CustomerRepository = {
       upsert: false,
     });
     if (upload.error) {
-      console.error("[customers] Storage error", upload.error);
+      logActionError("customers · Storage", upload.error);
       throw new CustomerError("No se pudo subir la foto");
     }
 

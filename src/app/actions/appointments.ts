@@ -12,6 +12,7 @@ import {
   type DaySummary,
 } from "@/lib/appointments/types";
 import { READ_ONLY_MESSAGE, denyStaffWrite, getCurrentProfile, requireStaff } from "@/lib/auth";
+import { logActionError } from "@/lib/logger";
 import { addDays, todayKey, zonedToUtc } from "@/lib/datetime";
 import {
   appointmentFiltersSchema,
@@ -34,7 +35,7 @@ function handleError<T>(error: unknown): ActionResult<T> {
   if (error instanceof AppointmentError) {
     return failure(error.message, error.field ? { [error.field]: [error.message] } : undefined);
   }
-  console.error("[appointments action]", error);
+  logActionError("appointments action", error);
   return failure("Ocurrió un error inesperado. Intenta de nuevo.");
 }
 

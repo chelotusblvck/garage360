@@ -1,4 +1,5 @@
 import "server-only";
+import { logActionError } from "@/lib/logger";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { formatFolio } from "@/lib/orders/workflow";
 import { createClient } from "@/lib/supabase/server";
@@ -22,7 +23,7 @@ function fail(error: PostgrestError): never {
     const field = msg.includes("kilometraje") ? "km" : msg.includes("foto") ? "photos" : msg.includes("cita") ? "appointment_id" : undefined;
     throw new CheckInError(msg, field);
   }
-  console.error("[check-in] Supabase error", error);
+  logActionError("check-in · Supabase", error);
   throw new CheckInError("No se pudo completar la recepción. Intenta de nuevo.");
 }
 
@@ -37,7 +38,7 @@ export const supabaseCheckInRepository: CheckInRepository = {
       upsert: false,
     });
     if (error) {
-      console.error("[check-in] Storage error", error);
+      logActionError("check-in · Storage", error);
       throw new CheckInError("No se pudo subir la foto", "photos");
     }
     return path;

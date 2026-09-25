@@ -1,4 +1,5 @@
 import "server-only";
+import { logActionError } from "@/lib/logger";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { addDays, zonedToUtc } from "@/lib/datetime";
 import { sanitizeSearch } from "@/lib/inventory/shared";
@@ -70,7 +71,7 @@ function fail(error: PostgrestError): never {
     case "PGRST116":
       throw new SalesError(error.message || "Registro no encontrado");
     default:
-      console.error("[sales] Supabase error", error);
+      logActionError("sales · Supabase", error);
       throw new SalesError("No se pudo completar la venta. Intenta de nuevo.");
   }
 }

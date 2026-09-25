@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { logValidationFailure } from "@/lib/logger";
 
 export type FieldErrors = Record<string, string[] | undefined>;
 
@@ -14,7 +15,9 @@ export const failure = <T = never>(error: string, fieldErrors?: FieldErrors): Ac
   fieldErrors,
 });
 
+/** Rechazo de validación en el servidor (queda registrado como warn en system_logs). */
 export function validationFailure<T = never>(error: z.ZodError): ActionResult<T> {
+  logValidationFailure(error);
   const fieldErrors: FieldErrors = {};
   for (const issue of error.issues) {
     const key = issue.path.join(".") || "_form";

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { LoaderCircle, LogIn, Search, Store } from "lucide-react";
 import { startSupportSession } from "@/app/actions/admin";
+import { DiagnosticsButton } from "@/components/admin/diagnostics-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -102,10 +103,13 @@ export function WorkshopDirectory({ workshops }: { workshops: WorkshopSummary[] 
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{w.users}</TableCell>
                   <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(new Date(w.created_at))}</TableCell>
-                  <TableCell className="text-right">
-                    <form action={startSupportSession.bind(null, w.id)}>
-                      <SupportButton name={w.name} />
-                    </form>
+                  <TableCell>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <DiagnosticsButton workshopId={w.id} workshopName={w.name} />
+                      <form action={startSupportSession.bind(null, w.id)}>
+                        <SupportButton name={w.name} />
+                      </form>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

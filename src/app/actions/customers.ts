@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { failure, success, validationFailure, type ActionResult } from "@/lib/action-result";
 import { denyStaffWrite, requireStaff } from "@/lib/auth";
+import { logActionError } from "@/lib/logger";
 import { getCustomerRepository } from "@/lib/customers/repository";
 import {
   CustomerError,
@@ -35,7 +36,7 @@ function handleError<T>(error: unknown): ActionResult<T> {
   if (error instanceof CustomerError) {
     return failure(error.message, error.field ? { [error.field]: [error.message] } : undefined);
   }
-  console.error("[customers action]", error);
+  logActionError("customers action", error);
   return failure("Ocurrió un error inesperado. Intenta de nuevo.");
 }
 

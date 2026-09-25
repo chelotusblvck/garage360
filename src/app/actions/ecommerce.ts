@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { failure, success, validationFailure, type ActionResult } from "@/lib/action-result";
 import { SHOP } from "@/lib/business";
+import { logActionError } from "@/lib/logger";
 import { loadCatalog, type Catalog } from "@/lib/sales/catalog";
 import { getSalesRepository } from "@/lib/sales/repository";
 import { SalesError, type OnlineOrderReceipt } from "@/lib/sales/types";
@@ -72,7 +73,7 @@ export async function processEcommerceOrder(
     if (error instanceof SalesError) {
       return failure(error.message, error.field ? { [error.field]: [error.message] } : undefined);
     }
-    console.error("[ecommerce action]", error);
+    logActionError("ecommerce action", error);
     return failure("No pudimos procesar tu pedido. Intenta de nuevo en unos minutos.");
   }
 }

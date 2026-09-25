@@ -2630,3 +2630,120 @@ drop policy if exists "work-order-photos: superadmin read" on storage.objects;
 create policy "work-order-photos: superadmin read" on storage.objects
   for select to authenticated
   using (bucket_id = 'work-order-photos' and public.is_superadmin());
+
+-- =============================================================================
+-- 14. Logs del sistema y diagnóstico por taller (superadmin)
+-- -----------------------------------------------------------------------------
+-- Los escribe src/lib/logger.ts desde el servidor (errores de Server Actions y
+-- repositorios, validaciones rechazadas, errores de render del panel). Solo el
+-- superadmin los lee. No hay políticas de INSERT: se escriben únicamente con
+-- write_system_log(), que valida y recorta cada campo (un insert por evento).
+-- =============================================================================
+create table if not exists public.system_logs (
+  id           uuid primary key default gen_random_uuid(),
+  workshop_id  uuid references public.workshops (id) on delete set null,
+  level        text not null,
+  source       text not null default 'server_action',
+  message      text not null,
+  stack_trace  text,
+  metadata     jsonb not null default '{}'::jsonb,
+  created_at   timestamptz not null default now(),
+  constraint system_logs_level_valid check (level in ('info', 'warn', 'error')),
+  constraint system_logs_source_valid check (source in ('server_action', 'api', 'client_error')),
+  constraint system_logs_message_length check (char_length(message) between 1 and 2000),
+  constraint system_logs_stack_length check (stack_trace is null or char_length(stack_trace) <= 20000),
+  constraint system_logs_metadata_object check (jsonb_typeof(metadata) = 'object'),
+  constraint system_logs_metadata_size check (octet_length(metadata::text) <= 32768)
+);
+
+create index if not exists system_logs_workshop_created_idx on public.system_logs (workshop_id, created_at desc);
+create index if not exists system_logs_level_created_idx on public.system_logs (level, created_at desc);
+
+alter table public.system_logs enable row level security;
+
+drop policy if exists "system_logs: superadmin read" on public.system_logs;
+create policy "system_logs: superadmin read" on public.system_logs
+  for select to authenticated
+  using (public.is_superadmin());
+
+-- Escritura atómica. También para anon: los errores del agendamiento público y
+-- la tienda se registran igual (con los límites de tamaño de la tabla).
+create or replace function public.write_system_log(
+  p_level       text,
+  p_source      text,
+  p_message     text,
+  p_stack_trace text  default null,
+  p_metadata    jsonb default '{}'::jsonb,
+  p_workshop_id uuid  default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_metadata jsonb := coalesce(p_metadata, '{}'::jsonb);
+begin
+  if jsonb_typeof(v_metadata) <> 'object' or octet_length(v_metadata::text) > 32768 then
+    v_metadata := jsonb_build_object('truncated', true);
+  end if;
+
+  insert into public.system_logs (workshop_id, level, source, message, stack_trace, metadata)
+  values (
+    -- Un id de taller inexistente no debe hacer fallar el registro del error.
+    (select id from public.workshops where id = p_workshop_id),
+    case when p_level in ('info', 'warn', 'error') then p_level else 'error' end,
+    case when p_source in ('server_action', 'api', 'client_error') then p_source else 'server_action' end,
+    left(coalesce(nullif(trim(p_message), ''), '(sin mensaje)'), 2000),
+    left(p_stack_trace, 20000),
+    v_metadata
+  );
+end;
+$$;
+
+grant execute on function public.write_system_log(text, text, text, text, jsonb, uuid) to anon, authenticated;
+
+-- Health check del taller: bucket de fotos, RLS por tabla y estado del tenant.
+-- La app mide además la latencia de esta llamada (conexión a Supabase).
+create or replace function public.admin_tenant_health(p_workshop uuid)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case when public.is_superadmin() then jsonb_build_object(
+    'workshop', (
+      select jsonb_build_object(
+        'name', w.name,
+        'onboarding_completed', w.onboarding_completed,
+        'staff_users', (select count(*) from public.profiles p where p.workshop_id = w.id and p.role in ('admin', 'mechanic'))
+      )
+      from public.workshops w where w.id = p_workshop
+    ),
+    'bucket', (
+      select jsonb_build_object(
+        'public', b.public,
+        'file_size_limit', b.file_size_limit,
+        'objects', (select count(*) from storage.objects o where o.bucket_id = b.id)
+      )
+      from storage.buckets b where b.id = 'work-order-photos'
+    ),
+    'rls', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'table', c.relname,
+               'enabled', c.relrowsecurity,
+               'policies', (select count(*) from pg_policies pp where pp.schemaname = 'public' and pp.tablename = c.relname)
+             ) order by c.relname), '[]'::jsonb)
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public' and c.relkind = 'r'
+    ),
+    'errors_24h', (
+      select count(*) from public.system_logs l
+       where l.workshop_id = p_workshop and l.level = 'error' and l.created_at > now() - interval '24 hours'
+    )
+  ) end;
+$$;
+
+grant execute on function public.admin_tenant_health(uuid) to authenticated;

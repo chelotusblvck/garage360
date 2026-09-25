@@ -1,4 +1,5 @@
 import "server-only";
+import { logActionError } from "@/lib/logger";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_CATEGORIES } from "./constants";
@@ -55,7 +56,7 @@ function fail(error: PostgrestError): never {
     case "PGRST116":
       throw new InventoryError("Producto no encontrado");
     default:
-      console.error("[inventory] Supabase error", error);
+      logActionError("inventory · Supabase", error);
       throw new InventoryError("No se pudo completar la operación. Intenta de nuevo.");
   }
 }
@@ -210,7 +211,7 @@ export const supabaseInventoryRepository: InventoryRepository = {
       upsert: false,
     });
     if (error) {
-      console.error("[inventory] Storage error", error);
+      logActionError("inventory · Storage", error);
       throw new InventoryError("No se pudo subir la imagen");
     }
     return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;

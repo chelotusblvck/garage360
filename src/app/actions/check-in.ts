@@ -6,6 +6,7 @@ import { failure, success, validationFailure, type ActionResult } from "@/lib/ac
 import { getAppointmentRepository } from "@/lib/appointments/repository";
 import { AppointmentError, type Appointment } from "@/lib/appointments/types";
 import { denyStaffWrite, requireStaff } from "@/lib/auth";
+import { logActionError } from "@/lib/logger";
 import { getCheckInRepository } from "@/lib/checkin/repository";
 import { checkInCaption } from "@/lib/checkin/shared";
 import { CheckInError, type CheckInResult } from "@/lib/checkin/types";
@@ -30,7 +31,7 @@ function handleError<T>(error: unknown): ActionResult<T> {
   if (error instanceof CheckInError || error instanceof WorkOrderError || error instanceof AppointmentError) {
     return failure(error.message, error.field ? { [error.field]: [error.message] } : undefined);
   }
-  console.error("[check-in action]", error);
+  logActionError("check-in action", error);
   return failure("Ocurrió un error inesperado. Intenta de nuevo.");
 }
 

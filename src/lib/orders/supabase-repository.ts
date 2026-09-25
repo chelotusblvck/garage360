@@ -1,4 +1,5 @@
 import "server-only";
+import { logActionError } from "@/lib/logger";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { sanitizeSearch } from "@/lib/inventory/shared";
 import { createClient } from "@/lib/supabase/server";
@@ -72,7 +73,7 @@ function fail(error: PostgrestError): never {
     throw new WorkOrderError(msg, msg.includes("kilometraje") ? "km" : undefined);
   }
   if (error.code === "PGRST116") throw new WorkOrderError("Orden de trabajo no encontrada");
-  console.error("[orders] Supabase error", error);
+  logActionError("orders · Supabase", error);
   throw new WorkOrderError("No se pudo completar la operación. Intenta de nuevo.");
 }
 
