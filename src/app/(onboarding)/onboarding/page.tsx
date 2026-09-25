@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { logout } from "@/app/(auth)/actions";
-import { Logo } from "@/components/brand/logo";
+import { Wordmark } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { getCurrentWorkshop, requireWorkshopAdmin } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/env";
@@ -41,7 +41,7 @@ export default async function OnboardingPage() {
     <div className="flex min-h-svh flex-col bg-muted/30">
       <header className="border-b bg-background">
         <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-3 px-4">
-          <Logo />
+          <Wordmark />
           <span className="text-sm text-muted-foreground">· Configuración inicial</span>
           <form action={logout} className="ml-auto">
             <Button type="submit" variant="ghost" size="sm">

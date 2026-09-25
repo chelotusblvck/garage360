@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { CalendarClock, ClipboardCheck, Gauge, ScanBarcode } from "lucide-react";
-import { Logo, LogoMark } from "@/components/brand/logo";
+import { Wordmark } from "@/components/brand/logo";
 
 const HIGHLIGHTS = [
   { icon: ClipboardCheck, text: "Recepción con fotos, órdenes de trabajo y comprobantes" },
@@ -14,7 +14,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
     <div className="grid min-h-svh lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
       <div className="flex flex-col gap-4 p-6 md:p-10">
         <Link href="/inicio" className="w-fit" aria-label="MotoOps · inicio">
-          <Logo />
+          <Wordmark size="lg" />
         </Link>
         <div className="flex flex-1 items-center justify-center py-6">
           <div className="w-full max-w-sm">{children}</div>
@@ -34,13 +34,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           className="absolute inset-0 opacity-[0.07] [background-image:linear-gradient(to_right,white_1px,transparent_1px),linear-gradient(to_bottom,white_1px,transparent_1px)] [background-size:44px_44px] [mask-image:radial-gradient(70%_60%_at_60%_40%,black,transparent)]"
         />
 
-        <div className="relative flex items-center gap-3">
-          <LogoMark className="size-10 rounded-xl" />
-          <div className="leading-tight">
-            <p className="text-lg font-semibold tracking-tight">MotoOps</p>
-            <p className="text-xs tracking-[0.2em] text-zinc-400 uppercase">by Garage360</p>
-          </div>
-        </div>
+        <Wordmark size="lg" tagline className="relative" />
 
         <div className="relative mt-auto grid max-w-md gap-8">
           <p className="text-3xl leading-tight font-semibold tracking-tight text-balance">
