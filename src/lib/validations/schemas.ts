@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isValidRut, normalizeRut } from "@/lib/rut";
+import { BILLING_METHODS, PAYMENT_CONCEPTS } from "@/lib/billing/shared";
 import { PLAN_KEYS, SETUP_TYPES } from "@/lib/workshops/plans";
 
 /*
@@ -759,6 +760,39 @@ export const newWorkshopSchema = z.object({
   admin_email: z.email("Email inválido").trim().toLowerCase().max(120),
 });
 
+// ---------------------------------------------------------------------------
+// Facturación de talleres (superadmin) y activación de cuentas
+// ---------------------------------------------------------------------------
+export const workshopPlanSchema = z.object({
+  plan: z.enum(PLAN_KEYS, { error: "Elige un plan" }),
+  setup_type: z.enum(SETUP_TYPES, { error: "Elige la modalidad" }),
+});
+
+export const workshopPaymentSchema = z.object({
+  concept: z.enum(PAYMENT_CONCEPTS, { error: "Elige el concepto" }),
+  amount: z
+    .number({ error: "Ingresa el monto" })
+    .int("Sin decimales (CLP)")
+    .positive("Debe ser mayor a 0")
+    .max(50_000_000, "Monto demasiado alto"),
+  method: z.enum(BILLING_METHODS, { error: "Elige el método de pago" }),
+  paid_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida"),
+  notes: optionalText(300),
+});
+
+export const workshopSuspensionSchema = z.object({
+  reason: z.string().trim().min(5, "Indica el motivo (mín. 5 caracteres)").max(300, "Máximo 300 caracteres"),
+});
+
+export const activationSchema = z
+  .object({
+    token: z.string().trim().min(20, "Enlace de activación inválido").max(200),
+    name: z.string().trim().min(2, "Ingresa tu nombre").max(120),
+    password: z.string().min(8, "Mínimo 8 caracteres").max(72, "Máximo 72 caracteres"),
+    confirmPassword: z.string(),
+  })
+  .refine((d) => d.password === d.confirmPassword, { path: ["confirmPassword"], message: "Las contraseñas no coinciden" });
+
 export const onboardingSchema = z
   .object({
     profile: workshopProfileSchema,
@@ -788,6 +822,9 @@ export type SaleStatus = z.infer<typeof saleStatusSchema>;
 export type PaymentMethod = z.infer<typeof paymentMethodSchema>;
 
 export type StaffRole = z.infer<typeof staffRoleSchema>;
+export type WorkshopPlanInput = z.infer<typeof workshopPlanSchema>;
+export type WorkshopPaymentValues = z.input<typeof workshopPaymentSchema>;
+export type WorkshopPaymentInput = z.output<typeof workshopPaymentSchema>;
 export type NewWorkshopValues = z.input<typeof newWorkshopSchema>;
 export type NewWorkshopInput = z.output<typeof newWorkshopSchema>;
 export type OnboardingValues = z.input<typeof onboardingSchema>;

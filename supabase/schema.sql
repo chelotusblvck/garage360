@@ -123,6 +123,26 @@ as $$
   select role from public.profiles where id = auth.uid();
 $$;
 
+-- Staff con acceso vigente: un taller suspendido por mora (sección 13 / 15)
+-- pierde el acceso a los datos también por la API, no solo en la app.
+-- plpgsql: referencia workshops, que se crea más abajo (se resuelve al ejecutar).
+create or replace function public.staff_workshop_active()
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  return not exists (
+    select 1
+      from public.profiles p
+      join public.workshops w on w.id = p.workshop_id
+     where p.id = auth.uid() and w.suspended_at is not null
+  );
+end;
+$$;
+
 create or replace function public.is_staff()
 returns boolean
 language sql
@@ -130,7 +150,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select coalesce(public.get_my_role() in ('admin', 'mechanic'), false);
+  select coalesce(public.get_my_role() in ('admin', 'mechanic'), false) and public.staff_workshop_active();
 $$;
 
 create or replace function public.is_admin()
@@ -140,7 +160,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select coalesce(public.get_my_role() = 'admin', false);
+  select coalesce(public.get_my_role() = 'admin', false) and public.staff_workshop_active();
 $$;
 
 -- Crea el perfil automáticamente al registrarse. El rol nace como 'client':
@@ -177,7 +197,9 @@ begin
     update public.profiles
        set role = v_invite.role, workshop_id = v_invite.workshop_id
      where id = new.id;
-    update public.workshop_staff set profile_id = new.id where id = v_invite.id;
+    update public.workshop_staff
+       set profile_id = new.id, activation_token_hash = null
+     where id = v_invite.id;
     return new;
   end if;
 
@@ -2426,6 +2448,10 @@ create table if not exists public.workshops (
 alter table public.workshops add column if not exists plan text not null default 'starter';
 alter table public.workshops add column if not exists setup_type text not null default 'diy';
 alter table public.workshops add column if not exists setup_fee numeric(12, 0) not null default 0;
+-- Cobro de la suscripción (sección 15): vencimiento y suspensión manual por mora.
+alter table public.workshops add column if not exists next_due_at date;
+alter table public.workshops add column if not exists suspended_at timestamptz;
+alter table public.workshops add column if not exists suspension_reason text;
 
 do $$ begin
   alter table public.workshops
@@ -2439,8 +2465,9 @@ do $$ begin
     );
 exception when duplicate_object then null; end $$;
 
--- Plan y setup son datos de facturación: el admin del taller puede editar su
--- ficha (política "workshops: admin updates own") pero no estos campos.
+-- Plan, setup, vencimiento y suspensión son datos de facturación: el admin del
+-- taller puede editar su ficha (política "workshops: admin updates own") pero
+-- no estos campos.
 create or replace function public.protect_workshop_billing()
 returns trigger
 language plpgsql
@@ -2448,10 +2475,11 @@ security definer
 set search_path = public
 as $$
 begin
-  if (new.plan, new.setup_type, new.setup_fee) is distinct from (old.plan, old.setup_type, old.setup_fee)
+  if (new.plan, new.setup_type, new.setup_fee, new.next_due_at, new.suspended_at, new.suspension_reason)
+     is distinct from (old.plan, old.setup_type, old.setup_fee, old.next_due_at, old.suspended_at, old.suspension_reason)
      and auth.uid() is not null
      and not public.is_superadmin() then
-    raise exception 'El plan y la implementación solo los cambia un superadministrador'
+    raise exception 'Los datos de facturación solo los cambia un superadministrador'
       using errcode = '42501';
   end if;
   return new;
@@ -2504,6 +2532,14 @@ create table if not exists public.workshop_staff (
 create unique index if not exists workshop_staff_email_unique
   on public.workshop_staff (workshop_id, lower(email))
   where email is not null;
+
+-- Enlace de activación del admin invitado: solo el SHA-256 del token (el token
+-- en claro va únicamente en el enlace /activate?token=…).
+alter table public.workshop_staff add column if not exists activation_token_hash text;
+alter table public.workshop_staff add column if not exists activation_expires_at timestamptz;
+create unique index if not exists workshop_staff_activation_unique
+  on public.workshop_staff (activation_token_hash)
+  where activation_token_hash is not null;
 
 create or replace function public.is_superadmin()
 returns boolean
@@ -2588,12 +2624,12 @@ end;
 $$;
 
 -- Directorio de talleres (superadmin): con cuentas de staff y equipo registrado.
--- drop: el tipo de retorno cambió (plan / setup); create or replace no lo permite.
+-- drop: el tipo de retorno cambió (plan, setup, cobro); create or replace no lo permite.
 drop function if exists public.admin_list_workshops();
 create function public.admin_list_workshops()
 returns table (
   id uuid, name text, rut text, city text, phone text, email text, specialty text, logo_url text,
-  plan text, setup_type text, setup_fee numeric,
+  plan text, setup_type text, setup_fee numeric, next_due_at date, suspended_at timestamptz, pending_invite text,
   onboarding_completed boolean, created_at timestamptz, users bigint, staff bigint
 )
 language sql
@@ -2602,7 +2638,10 @@ security definer
 set search_path = public
 as $$
   select w.id, w.name, w.rut, w.city, w.phone, w.email, w.specialty, w.logo_url,
-         w.plan, w.setup_type, w.setup_fee,
+         w.plan, w.setup_type, w.setup_fee, w.next_due_at, w.suspended_at,
+         (select s.email from public.workshop_staff s
+           where s.workshop_id = w.id and s.role = 'admin' and s.profile_id is null and s.email is not null
+           order by s.created_at desc limit 1),
          w.onboarding_completed, w.created_at,
          (select count(*) from public.profiles p where p.workshop_id = w.id and p.role in ('admin', 'mechanic')),
          (select count(*) from public.workshop_staff s where s.workshop_id = w.id)
@@ -2647,8 +2686,15 @@ begin
   )
   returning id into v_id;
 
-  insert into public.workshop_staff (workshop_id, name, email, role)
-  values (v_id, trim(p_workshop ->> 'admin_name'), v_email, 'admin');
+  insert into public.workshop_staff (workshop_id, name, email, role, activation_token_hash, activation_expires_at)
+  values (
+    v_id,
+    trim(p_workshop ->> 'admin_name'),
+    v_email,
+    'admin',
+    nullif(p_workshop ->> 'activation_token_hash', ''),
+    (p_workshop ->> 'activation_expires_at')::timestamptz
+  );
 
   update public.profiles
      set role = 'admin', workshop_id = v_id
@@ -2760,7 +2806,7 @@ create table if not exists public.system_logs (
   metadata     jsonb not null default '{}'::jsonb,
   created_at   timestamptz not null default now(),
   constraint system_logs_level_valid check (level in ('info', 'warn', 'error')),
-  constraint system_logs_source_valid check (source in ('server_action', 'api', 'client_error')),
+  constraint system_logs_source_valid check (source in ('server_action', 'api', 'client_error', 'billing_action')),
   constraint system_logs_message_length check (char_length(message) between 1 and 2000),
   constraint system_logs_stack_length check (stack_trace is null or char_length(stack_trace) <= 20000),
   constraint system_logs_metadata_object check (jsonb_typeof(metadata) = 'object'),
@@ -2769,6 +2815,11 @@ create table if not exists public.system_logs (
 
 create index if not exists system_logs_workshop_created_idx on public.system_logs (workshop_id, created_at desc);
 create index if not exists system_logs_level_created_idx on public.system_logs (level, created_at desc);
+
+-- billing_action (sección 15): recrea el check en instalaciones que ya tenían la tabla.
+alter table public.system_logs drop constraint if exists system_logs_source_valid;
+alter table public.system_logs add constraint system_logs_source_valid
+  check (source in ('server_action', 'api', 'client_error', 'billing_action'));
 
 -- Quién llamó a write_system_log (null = anon): base del rate limit en SQL.
 alter table public.system_logs add column if not exists created_by uuid;
@@ -2804,10 +2855,17 @@ as $$
 declare
   v_metadata jsonb := coalesce(p_metadata, '{}'::jsonb);
   v_caller   uuid  := auth.uid();
-  v_source   text  := case when p_source in ('server_action', 'api', 'client_error') then p_source else 'server_action' end;
+  v_source   text  := case when p_source in ('server_action', 'api', 'client_error', 'billing_action') then p_source else 'server_action' end;
+  v_is_super boolean := public.is_superadmin();
   v_recent   integer;
   v_client   integer;
 begin
+  -- La auditoría de facturación solo la escribe el superadmin: nadie más puede
+  -- falsificar entradas billing_action (se degradan a server_action).
+  if v_source = 'billing_action' and not v_is_super then
+    v_source := 'server_action';
+  end if;
+
   select count(*), count(*) filter (where source = 'client_error')
     into v_recent, v_client
     from public.system_logs
@@ -2884,3 +2942,170 @@ as $$
 $$;
 
 grant execute on function public.admin_tenant_health(uuid) to authenticated;
+
+-- =============================================================================
+-- 15. Facturación y cobro de talleres (superadmin) y activación de cuentas
+-- -----------------------------------------------------------------------------
+-- Pagos de la suscripción (mensualidad / anualidad / setup VIP), vencimiento y
+-- suspensión por mora. Solo el superadmin lee (RLS) y escribe (RPC definer).
+-- El estado «Al día / Pendiente / En Mora / Suspendido» se deriva en la app
+-- (src/lib/billing/shared.ts) de next_due_at y suspended_at.
+-- =============================================================================
+create table if not exists public.workshop_payments (
+  id           uuid primary key default gen_random_uuid(),
+  workshop_id  uuid not null references public.workshops (id) on delete cascade,
+  concept      text not null,
+  amount       numeric(12, 0) not null,          -- CLP con IVA incluido
+  method       text not null,
+  paid_at      date not null,
+  notes        text,
+  next_due_at  date,                             -- vencimiento resultante tras el pago
+  created_by   text,                             -- email del superadmin que lo registró
+  created_at   timestamptz not null default now(),
+  constraint workshop_payments_concept_valid check (concept in ('monthly', 'annual', 'setup')),
+  constraint workshop_payments_method_valid check (method in ('transfer', 'webpay', 'card', 'cash', 'other')),
+  constraint workshop_payments_amount_range check (amount > 0 and amount <= 50000000),
+  constraint workshop_payments_notes_length check (notes is null or char_length(notes) <= 300)
+);
+
+create index if not exists workshop_payments_workshop_idx on public.workshop_payments (workshop_id, paid_at desc);
+
+alter table public.workshop_payments enable row level security;
+
+drop policy if exists "workshop_payments: superadmin read" on public.workshop_payments;
+create policy "workshop_payments: superadmin read" on public.workshop_payments
+  for select to authenticated
+  using (public.is_superadmin());
+
+-- Pago + nuevo vencimiento en una sola transacción. El vencimiento lo calcula
+-- la app (nextDueAfterPayment); aquí se valida y se aplica.
+create or replace function public.admin_record_payment(p_workshop uuid, p_payment jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_row public.workshop_payments;
+begin
+  if not public.is_superadmin() then
+    raise exception 'Solo un superadministrador registra pagos' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.workshops where id = p_workshop) then
+    raise exception 'Taller no encontrado' using errcode = 'P0002';
+  end if;
+
+  insert into public.workshop_payments (workshop_id, concept, amount, method, paid_at, notes, next_due_at, created_by)
+  values (
+    p_workshop,
+    p_payment ->> 'concept',
+    (p_payment ->> 'amount')::numeric,
+    p_payment ->> 'method',
+    (p_payment ->> 'paid_at')::date,
+    nullif(trim(p_payment ->> 'notes'), ''),
+    (p_payment ->> 'next_due_at')::date,
+    (select email from public.profiles where id = auth.uid())
+  )
+  returning * into v_row;
+
+  if v_row.concept <> 'setup' then
+    update public.workshops set next_due_at = v_row.next_due_at where id = p_workshop;
+  end if;
+
+  return to_jsonb(v_row);
+end;
+$$;
+
+create or replace function public.admin_set_workshop_suspension(p_workshop uuid, p_suspended boolean, p_reason text default null)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_superadmin() then
+    raise exception 'Solo un superadministrador suspende talleres' using errcode = '42501';
+  end if;
+  update public.workshops
+     set suspended_at      = case when p_suspended then coalesce(suspended_at, now()) end,
+         suspension_reason = case when p_suspended then left(nullif(trim(p_reason), ''), 300) end
+   where id = p_workshop;
+  if not found then
+    raise exception 'Taller no encontrado' using errcode = 'P0002';
+  end if;
+end;
+$$;
+
+create or replace function public.admin_update_workshop_plan(p_workshop uuid, p_plan text, p_setup_type text, p_setup_fee numeric)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_superadmin() then
+    raise exception 'Solo un superadministrador cambia el plan' using errcode = '42501';
+  end if;
+  update public.workshops
+     set plan = p_plan, setup_type = p_setup_type, setup_fee = coalesce(p_setup_fee, 0)
+   where id = p_workshop;
+  if not found then
+    raise exception 'Taller no encontrado' using errcode = 'P0002';
+  end if;
+end;
+$$;
+
+-- Nuevo enlace para el admin pendiente (el anterior deja de valer). Devuelve su email.
+create or replace function public.admin_regenerate_activation(p_workshop uuid, p_token_hash text, p_expires_at timestamptz)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id    uuid;
+  v_email text;
+begin
+  if not public.is_superadmin() then
+    raise exception 'Solo un superadministrador genera enlaces' using errcode = '42501';
+  end if;
+  select id, email into v_id, v_email
+    from public.workshop_staff
+   where workshop_id = p_workshop and role = 'admin' and profile_id is null and email is not null
+   order by created_at desc
+   limit 1;
+  if v_id is null then
+    raise exception 'El taller no tiene un administrador pendiente de activar' using errcode = 'P0002';
+  end if;
+  update public.workshop_staff
+     set activation_token_hash = p_token_hash, activation_expires_at = p_expires_at
+   where id = v_id;
+  return v_email;
+end;
+$$;
+
+-- Pública (anon): valida el enlace /activate. Solo responde si el hash coincide
+-- con una invitación vigente sin cuenta, así que no permite enumerar talleres.
+create or replace function public.lookup_activation(p_token_hash text)
+returns table (workshop_id uuid, workshop_name text, name text, email text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select s.workshop_id, w.name, s.name, s.email
+    from public.workshop_staff s
+    join public.workshops w on w.id = s.workshop_id
+   where p_token_hash is not null
+     and s.activation_token_hash = p_token_hash
+     and s.profile_id is null
+     and s.email is not null
+     and (s.activation_expires_at is null or s.activation_expires_at > now())
+   limit 1;
+$$;
+
+grant execute on function public.admin_record_payment(uuid, jsonb) to authenticated;
+grant execute on function public.admin_set_workshop_suspension(uuid, boolean, text) to authenticated;
+grant execute on function public.admin_update_workshop_plan(uuid, text, text, numeric) to authenticated;
+grant execute on function public.admin_regenerate_activation(uuid, text, timestamptz) to authenticated;
+grant execute on function public.lookup_activation(text) to anon, authenticated;

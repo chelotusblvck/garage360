@@ -1,18 +1,27 @@
 import "server-only";
+import type { WorkshopPayment } from "@/lib/billing/types";
 import { WORKSHOP } from "@/lib/business";
-import { DEMO_ACCOUNTS, DEMO_NEW_WORKSHOP_ID } from "@/lib/demo/accounts";
+import { DEMO_ACCOUNTS, DEMO_NEW_WORKSHOP_ID, findDemoAccount } from "@/lib/demo/accounts";
 import { daysAgo, demoDb } from "@/lib/demo/db";
+import { addDays, todayKey } from "@/lib/datetime";
 import { rutCheckDigit } from "@/lib/rut";
 import { round2 } from "@/lib/sales/shared";
-import { SETUPS } from "./plans";
+import { PLANS, SETUPS } from "./plans";
 import { DEFAULT_RECEPTION_POLICY, PRIMARY_WORKSHOP_ID, taxRateFromPercent } from "./shared";
 import { WorkshopError, type Workshop, type WorkshopRepository, type WorkshopStaffMember } from "./types";
 
-/* Talleres en memoria (modo demo). Mismas reglas que complete_workshop_onboarding() en SQL. */
+/* Talleres en memoria (modo demo). Mismas reglas que las funciones SQL de la sección 13. */
 
-type DemoWorkshopStore = {
+/** Invitación con enlace de activación (en SQL: columnas de workshop_staff). */
+export type DemoStaffMember = WorkshopStaffMember & {
+  activation_token_hash: string | null;
+  activation_expires_at: string | null;
+};
+
+export type DemoWorkshopStore = {
   workshops: Workshop[];
-  staff: WorkshopStaffMember[];
+  staff: DemoStaffMember[];
+  payments: WorkshopPayment[];
   /** Cuentas de staff sin login demo propio (talleres de ejemplo del directorio). */
   extraUsers: Record<string, number>;
 };
@@ -34,13 +43,30 @@ function workshop(partial: Partial<Workshop> & Pick<Workshop, "id" | "name" | "c
     plan: "starter",
     setup_type: "diy",
     setup_fee: 0,
+    next_due_at: null,
+    suspended_at: null,
+    suspension_reason: null,
     onboarding_completed: false,
     onboarded_at: null,
     ...partial,
   };
 }
 
+const RIDER = "00000000-0000-0000-0000-000000000003";
+const ENDURO = "00000000-0000-0000-0000-000000000004";
+const SCOOTER = "00000000-0000-0000-0000-000000000005";
+
 function seed(): DemoWorkshopStore {
+  const today = todayKey();
+  const payment = (workshop_id: string, p: Pick<WorkshopPayment, "concept" | "amount" | "method" | "paid_at" | "next_due_at"> & { notes?: string }) => ({
+    id: crypto.randomUUID(),
+    workshop_id,
+    notes: null,
+    created_by: "super@motoops.cl",
+    created_at: `${p.paid_at}T15:00:00.000Z`,
+    ...p,
+  });
+
   return {
     workshops: [
       workshop({
@@ -56,6 +82,7 @@ function seed(): DemoWorkshopStore {
         plan: "pro",
         setup_type: "turnkey",
         setup_fee: SETUPS.turnkey.fee,
+        next_due_at: addDays(today, 12),
         onboarding_completed: true,
         onboarded_at: daysAgo(400, 11),
         created_at: daysAgo(400, 10),
@@ -67,7 +94,7 @@ function seed(): DemoWorkshopStore {
         created_at: daysAgo(0, 9),
       }),
       workshop({
-        id: "00000000-0000-0000-0000-000000000003",
+        id: RIDER,
         name: "Rider Pro Viña",
         rut: rut("77120455"),
         address: "Av. Libertad 1180",
@@ -76,12 +103,13 @@ function seed(): DemoWorkshopStore {
         email: "contacto@riderpro.cl",
         specialty: "Multimarca",
         hourly_rate: 38_000,
+        next_due_at: addDays(today, -3),
         onboarding_completed: true,
         onboarded_at: daysAgo(118, 12),
         created_at: daysAgo(120, 10),
       }),
       workshop({
-        id: "00000000-0000-0000-0000-000000000004",
+        id: ENDURO,
         name: "Enduro Andes Taller",
         rut: rut("76980312"),
         address: "Esmeralda 455",
@@ -91,12 +119,13 @@ function seed(): DemoWorkshopStore {
         specialty: "Off-road y enduro",
         plan: "pro",
         hourly_rate: 35_000,
+        next_due_at: addDays(today, -21),
         onboarding_completed: true,
         onboarded_at: daysAgo(58, 16),
         created_at: daysAgo(60, 15),
       }),
       workshop({
-        id: "00000000-0000-0000-0000-000000000005",
+        id: SCOOTER,
         name: "Scooter Center Ñuñoa",
         plan: "enterprise",
         setup_type: "turnkey",
@@ -106,33 +135,40 @@ function seed(): DemoWorkshopStore {
       }),
     ],
     staff: [],
-    extraUsers: {
-      "00000000-0000-0000-0000-000000000003": 4,
-      "00000000-0000-0000-0000-000000000004": 2,
-      "00000000-0000-0000-0000-000000000005": 1,
-    },
+    payments: [
+      payment(PRIMARY_WORKSHOP_ID, { concept: "setup", amount: SETUPS.turnkey.fee, method: "transfer", paid_at: addDays(today, -400), next_due_at: null, notes: "Carga masiva + capacitación" }),
+      payment(PRIMARY_WORKSHOP_ID, { concept: "annual", amount: PLANS.pro.monthly * 12, method: "transfer", paid_at: addDays(today, -353), next_due_at: addDays(today, 12) }),
+      payment(RIDER, { concept: "monthly", amount: PLANS.starter.monthly, method: "webpay", paid_at: addDays(today, -33), next_due_at: addDays(today, -3) }),
+      payment(ENDURO, { concept: "monthly", amount: PLANS.pro.monthly, method: "card", paid_at: addDays(today, -51), next_due_at: addDays(today, -21) }),
+    ].sort((a, b) => b.paid_at.localeCompare(a.paid_at)),
+    extraUsers: { [RIDER]: 4, [ENDURO]: 2, [SCOOTER]: 1 },
   };
 }
 
 const store = globalThis as typeof globalThis & { __motoopsDemoWorkshops?: DemoWorkshopStore };
-const demoWorkshops = () => (store.__motoopsDemoWorkshops ??= seed());
+export const demoWorkshopStore = () => (store.__motoopsDemoWorkshops ??= seed());
 
 /** Cuentas de staff del taller: logins demo + (en el principal) los mecánicos sembrados. */
 function userCount(s: DemoWorkshopStore, id: string) {
   const logins = DEMO_ACCOUNTS.filter((a) => a.workshopId === id).length;
   const mechanics = id === PRIMARY_WORKSHOP_ID ? demoDb().mechanics.length : 0;
-  const onboarded = s.staff.filter((m) => m.workshop_id === id && m.profile_id).length;
-  return logins + mechanics + onboarded + (s.extraUsers[id] ?? 0);
+  const linked = s.staff.filter((m) => m.workshop_id === id && m.profile_id).length;
+  return logins + mechanics + linked + (s.extraUsers[id] ?? 0);
+}
+
+/** Invitación de admin pendiente de activar (la más reciente). */
+export function pendingAdminInvite(s: DemoWorkshopStore, workshopId: string) {
+  return s.staff.filter((m) => m.workshop_id === workshopId && m.role === "admin" && !m.profile_id).at(-1) ?? null;
 }
 
 export const demoWorkshopRepository: WorkshopRepository = {
   async get(id) {
-    const w = demoWorkshops().workshops.find((x) => x.id === id);
+    const w = demoWorkshopStore().workshops.find((x) => x.id === id);
     return w ? { ...w } : null;
   },
 
   async completeOnboarding(id, { profile, staff, settings }) {
-    const s = demoWorkshops();
+    const s = demoWorkshopStore();
     const w = s.workshops.find((x) => x.id === id);
     if (!w) throw new WorkshopError("Taller no encontrado");
 
@@ -151,18 +187,25 @@ export const demoWorkshopRepository: WorkshopRepository = {
     const db = demoDb();
     for (const member of staff) {
       const profileId = crypto.randomUUID();
-      s.staff.push({ id: crypto.randomUUID(), workshop_id: id, ...member, profile_id: profileId, created_at: now });
+      s.staff.push({
+        id: crypto.randomUUID(),
+        workshop_id: id,
+        ...member,
+        profile_id: profileId,
+        activation_token_hash: null,
+        activation_expires_at: null,
+        created_at: now,
+      });
       db.mechanics.push({ id: profileId, name: member.name });
     }
     return { ...w };
   },
 
-  async create(input, setupFee) {
-    const s = demoWorkshops();
+  async create(input, setupFee, activation) {
+    const s = demoWorkshopStore();
     const email = input.admin_email;
-    const taken =
-      DEMO_ACCOUNTS.some((a) => a.email === email && a.role !== "client") ||
-      s.staff.some((m) => m.email === email);
+    const account = findDemoAccount(email);
+    const taken = (account && account.role !== "client") || s.staff.some((m) => m.email === email);
     if (taken) throw new WorkshopError("Ese email ya es staff de un taller", "admin_email");
 
     const now = new Date().toISOString();
@@ -178,7 +221,6 @@ export const demoWorkshopRepository: WorkshopRepository = {
       created_at: now,
     });
     s.workshops.push(created);
-    // Invitación: en demo no hay registro de cuentas, así que queda pendiente.
     s.staff.push({
       id: crypto.randomUUID(),
       workshop_id: created.id,
@@ -188,13 +230,27 @@ export const demoWorkshopRepository: WorkshopRepository = {
       role: "admin",
       specialty: null,
       profile_id: null,
+      activation_token_hash: activation.tokenHash,
+      activation_expires_at: activation.expiresAt,
       created_at: now,
     });
     return { ...created };
   },
 
+  async lookupActivation(tokenHash) {
+    const s = demoWorkshopStore();
+    const invite = s.staff.find(
+      (m) =>
+        m.activation_token_hash === tokenHash &&
+        !m.profile_id &&
+        (!m.activation_expires_at || m.activation_expires_at > new Date().toISOString())
+    );
+    const w = invite ? s.workshops.find((x) => x.id === invite.workshop_id) : null;
+    return invite && w && invite.email ? { workshopId: w.id, workshopName: w.name, name: invite.name, email: invite.email } : null;
+  },
+
   async list() {
-    const s = demoWorkshops();
+    const s = demoWorkshopStore();
     return s.workshops
       .map((w) => ({
         id: w.id,
@@ -210,6 +266,9 @@ export const demoWorkshopRepository: WorkshopRepository = {
         plan: w.plan,
         setup_type: w.setup_type,
         setup_fee: w.setup_fee,
+        next_due_at: w.next_due_at,
+        suspended_at: w.suspended_at,
+        pending_invite: pendingAdminInvite(s, w.id)?.email ?? null,
         users: userCount(s, w.id),
         staff: s.staff.filter((m) => m.workshop_id === w.id).length,
       }))
@@ -217,7 +276,7 @@ export const demoWorkshopRepository: WorkshopRepository = {
   },
 
   async globalMetrics() {
-    const s = demoWorkshops();
+    const s = demoWorkshopStore();
     const db = demoDb();
     const paid = db.sales.filter((x) => x.status === "paid");
     return {

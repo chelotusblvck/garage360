@@ -34,3 +34,11 @@ export const SHOP = {
   transferAccount: `Banco de Chile · Cta. Cte. 00-123-45678-09 · MotoOps Servicios Técnicos SpA · ${WORKSHOP.taxId}`,
   maxUnitsPerProduct: 20,
 } as const;
+
+/** Contacto de la plataforma (Garage360) para cobranza y soporte de los talleres. */
+export const PLATFORM = {
+  name: "MotoOps",
+  company: "Garage360",
+  supportEmail: "soporte@garage360.cl",
+  supportPhone: "+56 9 5555 0360",
+} as const;

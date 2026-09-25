@@ -7,7 +7,7 @@ import { taxRateFromPercent } from "./shared";
 import { WorkshopError, type Workshop, type WorkshopRepository, type WorkshopSummary } from "./types";
 
 const WORKSHOP_COLUMNS =
-  "id, name, rut, address, city, phone, email, specialty, logo_url, hourly_rate, tax_rate, reception_policy, plan, setup_type, setup_fee, onboarding_completed, onboarded_at, created_at";
+  "id, name, rut, address, city, phone, email, specialty, logo_url, hourly_rate, tax_rate, reception_policy, plan, setup_type, setup_fee, next_due_at, suspended_at, suspension_reason, onboarding_completed, onboarded_at, created_at";
 
 type Row = Record<string, unknown>;
 
@@ -40,6 +40,9 @@ function toWorkshop(r: Row): Workshop {
     plan: r.plan as PlanKey,
     setup_type: r.setup_type as SetupType,
     setup_fee: Number(r.setup_fee ?? 0),
+    next_due_at: str(r.next_due_at),
+    suspended_at: str(r.suspended_at),
+    suspension_reason: str(r.suspension_reason),
     onboarding_completed: Boolean(r.onboarding_completed),
     onboarded_at: str(r.onboarded_at),
     created_at: String(r.created_at),
@@ -72,16 +75,32 @@ export const supabaseWorkshopRepository: WorkshopRepository = {
     return workshop;
   },
 
-  async create(input, setupFee) {
+  async create(input, setupFee, activation) {
     const supabase = await createClient();
     // RPC atómica: taller + invitación del admin (o vínculo inmediato si ya tiene cuenta).
     const { data, error } = await supabase.rpc("admin_create_workshop", {
-      p_workshop: { ...input, setup_fee: setupFee },
+      p_workshop: {
+        ...input,
+        setup_fee: setupFee,
+        activation_token_hash: activation.tokenHash,
+        activation_expires_at: activation.expiresAt,
+      },
     });
     if (error) fail(error);
     const workshop = await supabaseWorkshopRepository.get(String(data));
     if (!workshop) throw new WorkshopError("No se pudo leer el taller creado");
     return workshop;
+  },
+
+  async lookupActivation(tokenHash) {
+    const supabase = await createClient();
+    // RPC pública (anon): solo devuelve datos si el hash coincide con una invitación vigente.
+    const { data, error } = await supabase.rpc("lookup_activation", { p_token_hash: tokenHash });
+    if (error) fail(error);
+    const r = ((data ?? []) as Row[])[0];
+    return r
+      ? { workshopId: String(r.workshop_id), workshopName: String(r.workshop_name), name: String(r.name), email: String(r.email) }
+      : null;
   },
 
   async list() {
@@ -103,6 +122,9 @@ export const supabaseWorkshopRepository: WorkshopRepository = {
         plan: r.plan as PlanKey,
         setup_type: r.setup_type as SetupType,
         setup_fee: Number(r.setup_fee ?? 0),
+        next_due_at: str(r.next_due_at),
+        suspended_at: str(r.suspended_at),
+        pending_invite: str(r.pending_invite),
         users: Number(r.users),
         staff: Number(r.staff),
       })

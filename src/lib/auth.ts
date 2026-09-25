@@ -91,6 +91,18 @@ export function homePathFor(profile: Pick<SessionProfile, "role">) {
 }
 
 /**
+ * Taller suspendido por mora: su staff solo ve /dashboard/suspended. El
+ * superadmin en modo soporte no se ve afectado (su perfil no tiene workshopId).
+ */
+async function redirectIfSuspended(profile: SessionProfile) {
+  if (profile.support || !profile.workshopId) return;
+  const workshop = await getCurrentWorkshop();
+  if (workshop?.suspended_at) redirect(SUSPENDED_PATH);
+}
+
+export const SUSPENDED_PATH = "/dashboard/suspended";
+
+/**
  * Exige staff del taller (admin o mecánico) o un superadmin en modo soporte;
  * si no, redirige.
  */
@@ -102,6 +114,7 @@ export async function requireStaff(): Promise<SessionProfile> {
     return profile;
   }
   if (profile.role === "client") redirect("/inicio");
+  await redirectIfSuspended(profile);
   return profile;
 }
 
@@ -129,5 +142,6 @@ export async function requireWorkshopAdmin(): Promise<SessionProfile & { worksho
   const profile = await getCurrentProfile();
   if (!profile) redirect("/login?next=/onboarding");
   if (profile.role !== "admin" || !profile.workshopId) redirect(homePathFor(profile));
+  await redirectIfSuspended(profile);
   return { ...profile, workshopId: profile.workshopId };
 }

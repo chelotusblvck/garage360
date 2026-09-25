@@ -11,7 +11,7 @@ import {
   type BookingResult,
   type DaySummary,
 } from "@/lib/appointments/types";
-import { READ_ONLY_MESSAGE, denyStaffWrite, getCurrentProfile, requireStaff } from "@/lib/auth";
+import { denyStaffWrite, getCurrentProfile, requireStaff } from "@/lib/auth";
 import { logActionError } from "@/lib/logger";
 import { addDays, todayKey, zonedToUtc } from "@/lib/datetime";
 import {
@@ -119,8 +119,12 @@ export async function createAppointment(
   data: unknown,
   channel: "staff" | "public" = "staff"
 ): Promise<ActionResult<BookingResult>> {
+  // Canal staff: mismo guard que el resto de escrituras (modo soporte y taller suspendido).
+  if (channel === "staff") {
+    const denied = await denyStaffWrite();
+    if (denied) return denied;
+  }
   const profile = await getCurrentProfile();
-  if (channel === "staff" && profile?.support) return failure(READ_ONLY_MESSAGE);
   const isStaff = channel === "staff" && (profile?.role === "admin" || profile?.role === "mechanic");
   if (channel === "staff" && !isStaff) return failure("No autorizado");
 

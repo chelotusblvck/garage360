@@ -3,6 +3,7 @@ import { ClipboardList, Store, Users, Wallet } from "lucide-react";
 import { getGlobalMetrics, getWorkshops } from "@/app/actions/admin";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { isSupabaseConfigured } from "@/lib/env";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { NewWorkshopWizard } from "./_components/new-workshop-wizard";
 import { WorkshopDirectory } from "./_components/workshop-directory";
@@ -18,7 +19,7 @@ export default async function AdminPage() {
       <PageHeader
         title="Consola de superadministración"
         description="Talleres registrados en la plataforma, soporte e indicadores consolidados."
-        actions={<NewWorkshopWizard />}
+        actions={<NewWorkshopWizard isDemo={!isSupabaseConfigured()} />}
       />
 
       <section aria-label="Métricas globales" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

@@ -3,11 +3,15 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { DEMO_PASSWORD, findDemoAccount } from "@/lib/demo/accounts";
+import { hashActivationToken } from "@/lib/activation";
+import { demoActivateInvite } from "@/lib/billing/demo-repository";
+import { DEMO_PASSWORD, findDemoAccount, registerDemoAccount, verifyDemoPassword } from "@/lib/demo/accounts";
 import { isSupabaseConfigured } from "@/lib/env";
 import { DEMO_SESSION_COOKIE, SUPPORT_COOKIE } from "@/lib/session-cookies";
 import { createClient } from "@/lib/supabase/server";
-import { loginSchema, registerSchema, type UserRole } from "@/lib/validations/schemas";
+import { logEvent } from "@/lib/logger";
+import { activationSchema, loginSchema, registerSchema, type UserRole } from "@/lib/validations/schemas";
+import { getWorkshopRepository } from "@/lib/workshops/repository";
 
 export type AuthFormState = {
   error?: string;
@@ -52,7 +56,7 @@ export async function login(_prev: AuthFormState, formData: FormData): Promise<A
 
   if (!isSupabaseConfigured()) {
     const account = findDemoAccount(parsed.data.email);
-    if (!account || parsed.data.password !== DEMO_PASSWORD) {
+    if (!account || !verifyDemoPassword(account, parsed.data.password)) {
       return { error: `Email o contraseña incorrectos. En modo demo la contraseña es «${DEMO_PASSWORD}».` };
     }
     const mismatch = portalMismatch(portal, account.role);
@@ -113,4 +117,42 @@ export async function logout() {
     cookieStore.delete(DEMO_SESSION_COOKIE);
   }
   redirect("/login");
+}
+
+/**
+ * Activación de la cuenta del admin de un taller nuevo (/activate?token=…).
+ * El token vale por sí solo como invitación: define el email y el taller.
+ */
+export async function activateAccount(_prev: AuthFormState, formData: FormData): Promise<AuthFormState> {
+  const parsed = activationSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) {
+    return { fieldErrors: z.flattenError(parsed.error).fieldErrors };
+  }
+  const { token, name, password } = parsed.data;
+  const tokenHash = hashActivationToken(token);
+  const invite = await getWorkshopRepository().lookupActivation(tokenHash);
+  if (!invite) return { error: "El enlace no es válido, venció o ya se usó. Pide uno nuevo a soporte." };
+
+  const cookieStore = await cookies();
+  cookieStore.delete(SUPPORT_COOKIE);
+
+  if (!isSupabaseConfigured()) {
+    if (findDemoAccount(invite.email)) return { error: "Ese email ya tiene una cuenta: inicia sesión." };
+    const profileId = crypto.randomUUID();
+    if (!demoActivateInvite(tokenHash, profileId)) return { error: "El enlace ya se usó." };
+    registerDemoAccount({ id: profileId, email: invite.email, name, role: "admin", workshopId: invite.workshopId }, password);
+    cookieStore.set(DEMO_SESSION_COOKIE, invite.email, { httpOnly: true, sameSite: "lax", path: "/" });
+    logEvent({ level: "info", message: "Cuenta de administrador activada", workshopId: invite.workshopId, metadata: { email: invite.email } });
+    redirect("/");
+  }
+
+  const supabase = await createClient();
+  // handle_new_user vincula la invitación por email: rol admin + taller, y anula el token.
+  const { data, error } = await supabase.auth.signUp({ email: invite.email, password, options: { data: { name } } });
+  if (error) return { error: error.message };
+  logEvent({ level: "info", message: "Cuenta de administrador activada", workshopId: invite.workshopId, metadata: { email: invite.email } });
+  if (!data.session) {
+    return { success: `Te enviamos un email a ${invite.email} para confirmar la cuenta. Después inicia sesión.` };
+  }
+  redirect("/");
 }

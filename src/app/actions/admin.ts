@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { activationPath, newActivationToken } from "@/lib/activation";
 import { failure, success, validationFailure, type ActionResult } from "@/lib/action-result";
 import { requireSuperadmin } from "@/lib/auth";
 import { logActionError, logEvent } from "@/lib/logger";
@@ -66,10 +67,13 @@ export async function endSupportSession() {
 
 /**
  * Crea el taller (onboarding pendiente) con su plan y modalidad de
- * implementación, e invita a su administrador por email. El fee de setup se
- * toma de la tabla de precios del servidor, nunca del formulario.
+ * implementación, e invita a su administrador con un enlace de activación
+ * (el token en claro solo se devuelve aquí, una vez). El fee de setup se toma
+ * de la tabla de precios del servidor, nunca del formulario.
  */
-export async function createWorkshop(data: unknown): Promise<ActionResult<{ id: string; name: string }>> {
+export async function createWorkshop(
+  data: unknown
+): Promise<ActionResult<{ id: string; name: string; adminEmail: string; activationPath: string }>> {
   const profile = await requireSuperadmin();
   const parsed = newWorkshopSchema.safeParse(data);
   if (!parsed.success) return validationFailure(parsed.error);
@@ -77,11 +81,13 @@ export async function createWorkshop(data: unknown): Promise<ActionResult<{ id: 
   const input = parsed.data;
   const charge = initialCharge(input.plan, input.setup_type);
   try {
-    const workshop = await getWorkshopRepository().create(input, charge.setupFee);
+    const { token, ticket } = newActivationToken();
+    const workshop = await getWorkshopRepository().create(input, charge.setupFee, ticket);
 
     // Auditoría: queda en el visor «Diagnóstico Dev» del taller nuevo.
     logEvent({
       level: "info",
+      source: "billing_action",
       message: `Taller creado · plan ${PLANS[input.plan].label} · setup ${SETUPS[input.setup_type].short}`,
       workshopId: workshop.id,
       metadata: {
@@ -97,7 +103,7 @@ export async function createWorkshop(data: unknown): Promise<ActionResult<{ id: 
     });
 
     revalidatePath("/admin");
-    return success({ id: workshop.id, name: workshop.name });
+    return success({ id: workshop.id, name: workshop.name, adminEmail: input.admin_email, activationPath: activationPath(token) });
   } catch (error) {
     if (error instanceof WorkshopError) {
       return failure(error.message, error.field ? { [error.field]: [error.message] } : undefined);

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch, type FieldPath } from "react-hook-form";
 import { toast } from "sonner";
-import { ArrowLeft, ArrowRight, Check, LoaderCircle, Plus, Rocket, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CircleCheck, LoaderCircle, Plus, Rocket, Sparkles } from "lucide-react";
 import { createWorkshop } from "@/app/actions/admin";
 import { Field, fieldAria } from "@/components/forms/field";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { newWorkshopSchema, type NewWorkshopValues } from "@/lib/validations/schemas";
 import { PLAN_KEYS, PLANS, SETUP_TYPES, SETUPS, initialCharge } from "@/lib/workshops/plans";
+import { ActivationLink } from "./activation-link";
 
 const STEPS = [
   { title: "Plan e implementación", fields: ["plan", "setup_type"] },
@@ -33,7 +34,7 @@ const DEFAULTS: NewWorkshopValues = {
 };
 
 /** Botón «Nuevo taller» + asistente de alta (solo en /admin). */
-export function NewWorkshopWizard() {
+export function NewWorkshopWizard({ isDemo }: { isDemo: boolean }) {
   const [open, setOpen] = useState(false);
   // key: cada apertura empieza de cero.
   const [session, setSession] = useState(0);
@@ -50,18 +51,19 @@ export function NewWorkshopWizard() {
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[92svh] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-3xl">
-          <WizardBody key={session} onDone={() => setOpen(false)} />
+          <WizardBody key={session} isDemo={isDemo} onDone={() => setOpen(false)} />
         </DialogContent>
       </Dialog>
     </>
   );
 }
 
-function WizardBody({ onDone }: { onDone: () => void }) {
+function WizardBody({ isDemo, onDone }: { isDemo: boolean; onDone: () => void }) {
   const router = useRouter();
   const uid = useId();
   const id = (name: string) => `${uid}-${name}`;
   const [step, setStep] = useState(0);
+  const [created, setCreated] = useState<{ name: string; adminEmail: string; activationPath: string } | null>(null);
 
   const {
     register,
@@ -101,12 +103,41 @@ function WizardBody({ onDone }: { onDone: () => void }) {
       toast.error(result.error);
       return;
     }
-    toast.success(`${result.data.name} creado`, {
-      description: `${values.admin_email} debe crear su cuenta en /register con ese email para entrar como administrador.`,
-    });
-    onDone();
+    toast.success(`${result.data.name} creado`);
+    setCreated(result.data);
     router.refresh();
   });
+
+  if (created) {
+    return (
+      <>
+        <DialogHeader className="pr-8">
+          <DialogTitle className="flex items-center gap-2">
+            <CircleCheck className="size-5 text-status-good" aria-hidden />
+            {created.name} creado
+          </DialogTitle>
+          <DialogDescription>
+            Comparte el enlace con el administrador: al abrirlo crea su contraseña y entra directo al onboarding.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="-mx-4 grid min-h-0 content-start gap-3 overflow-y-auto px-4 py-1">
+          <ActivationLink path={created.activationPath} email={created.adminEmail} workshopName={created.name} />
+          {isDemo ? (
+            <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Modo demo:</span> abre el enlace en otra ventana (o en incógnito)
+              para activar la cuenta al instante. También puedes revisar el taller ya mismo con «Ingresar como taller» en
+              el directorio.
+            </p>
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button type="button" onClick={onDone}>
+            Listo
+          </Button>
+        </DialogFooter>
+      </>
+    );
+  }
 
   return (
     <form onSubmit={onSubmit} noValidate className="contents">

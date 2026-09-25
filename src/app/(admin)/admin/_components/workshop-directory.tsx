@@ -4,15 +4,19 @@ import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { LoaderCircle, LogIn, Search, Store } from "lucide-react";
 import { startSupportSession } from "@/app/actions/admin";
+import { BillingStatusBadge } from "@/components/admin/billing-status-badge";
 import { DiagnosticsButton } from "@/components/admin/diagnostics-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { billingStatus } from "@/lib/billing/shared";
+import { todayKey } from "@/lib/datetime";
 import { formatCurrency, formatDate, formatRut } from "@/lib/format";
 import { cn, normalizeText } from "@/lib/utils";
 import { PLANS, SETUPS } from "@/lib/workshops/plans";
 import type { WorkshopSummary } from "@/lib/workshops/types";
+import { WorkshopBillingButton } from "./workshop-billing-dialog";
 
 function searchText(w: WorkshopSummary) {
   return normalizeText(
@@ -25,6 +29,7 @@ export function WorkshopDirectory({ workshops }: { workshops: WorkshopSummary[] 
   const [query, setQuery] = useState("");
   const indexed = useMemo(() => workshops.map((w) => ({ w, text: searchText(w) })), [workshops]);
   const terms = normalizeText(query).split(/\s+/).filter(Boolean);
+  const today = todayKey();
   const rows = indexed.filter(({ text }) => terms.every((t) => text.includes(t))).map(({ w }) => w);
 
   return (
@@ -59,7 +64,7 @@ export function WorkshopDirectory({ workshops }: { workshops: WorkshopSummary[] 
               <TableRow>
                 <TableHead>Taller</TableHead>
                 <TableHead>Plan</TableHead>
-                <TableHead>RUT</TableHead>
+                <TableHead>Cobro</TableHead>
                 <TableHead>Comuna</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead className="text-right">Usuarios</TableHead>
@@ -85,7 +90,7 @@ export function WorkshopDirectory({ workshops }: { workshops: WorkshopSummary[] 
                       <div className="grid min-w-0 leading-tight">
                         <span className="truncate font-medium">{w.name}</span>
                         <span className="truncate text-xs text-muted-foreground">
-                          {[w.specialty, w.email].filter(Boolean).join(" · ") || "Sin datos de contacto"}
+                          {[w.rut ? formatRut(w.rut) : null, w.specialty, w.email].filter(Boolean).join(" · ") || "Sin datos de contacto"}
                         </span>
                       </div>
                     </div>
@@ -98,7 +103,9 @@ export function WorkshopDirectory({ workshops }: { workshops: WorkshopSummary[] 
                       </span>
                     ) : null}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">{w.rut ? formatRut(w.rut) : "—"}</TableCell>
+                  <TableCell>
+                    <BillingStatusBadge status={billingStatus(w, today)} />
+                  </TableCell>
                   <TableCell>{w.city ?? "—"}</TableCell>
                   <TableCell>
                     <span
@@ -115,6 +122,7 @@ export function WorkshopDirectory({ workshops }: { workshops: WorkshopSummary[] 
                   <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(new Date(w.created_at))}</TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-1.5">
+                      <WorkshopBillingButton workshopId={w.id} workshopName={w.name} />
                       <DiagnosticsButton workshopId={w.id} workshopName={w.name} />
                       <form action={startSupportSession.bind(null, w.id)}>
                         <SupportButton name={w.name} />

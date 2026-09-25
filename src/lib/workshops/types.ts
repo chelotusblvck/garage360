@@ -26,6 +26,11 @@ export type Workshop = {
   setup_type: SetupType;
   /** Fee de setup cobrado al alta (CLP, pago único). */
   setup_fee: number;
+  /** Próximo vencimiento de la suscripción (dateKey); null = nunca pagó. */
+  next_due_at: string | null;
+  /** Suspensión manual por mora: bloquea el panel (salvo modo soporte). */
+  suspended_at: string | null;
+  suspension_reason: string | null;
   onboarding_completed: boolean;
   onboarded_at: string | null;
   created_at: string;
@@ -47,8 +52,10 @@ export type WorkshopStaffMember = {
 /** Fila del directorio de talleres (superadmin). */
 export type WorkshopSummary = Pick<
   Workshop,
-  "id" | "name" | "rut" | "city" | "phone" | "email" | "specialty" | "logo_url" | "onboarding_completed" | "created_at" | "plan" | "setup_type" | "setup_fee"
+  "id" | "name" | "rut" | "city" | "phone" | "email" | "specialty" | "logo_url" | "onboarding_completed" | "created_at" | "plan" | "setup_type" | "setup_fee" | "next_due_at" | "suspended_at"
 > & {
+  /** Email del admin invitado que aún no activa su cuenta. */
+  pending_invite: string | null;
   /** Cuentas de staff vinculadas al taller. */
   users: number;
   /** Personas registradas en el onboarding (con o sin cuenta). */
@@ -72,7 +79,9 @@ export interface WorkshopRepository {
   /** Guarda el onboarding de forma atómica y marca onboarding_completed. */
   completeOnboarding(id: string, input: OnboardingInput): Promise<Workshop>;
   /** Alta desde /admin: taller con onboarding pendiente + invitación a su admin. */
-  create(input: NewWorkshopInput, setupFee: number): Promise<Workshop>;
+  create(input: NewWorkshopInput, setupFee: number, activation: ActivationTicket): Promise<Workshop>;
+  /** Invitación vigente para el token (su hash), o null si no existe, venció o ya se usó. */
+  lookupActivation(tokenHash: string): Promise<ActivationInvite | null>;
   list(): Promise<WorkshopSummary[]>;
   globalMetrics(): Promise<GlobalMetrics>;
 }
@@ -87,3 +96,8 @@ export class WorkshopError extends Error {
     this.name = "WorkshopError";
   }
 }
+
+/** Token de activación: solo se guarda su hash; el token en claro va en el enlace. */
+export type ActivationTicket = { tokenHash: string; expiresAt: string };
+
+export type ActivationInvite = { workshopId: string; workshopName: string; name: string; email: string };
