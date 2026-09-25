@@ -61,6 +61,14 @@ export async function getCustomerDetail(id: string): Promise<CustomerDetail | nu
   return getCustomerRepository().detail(parsed.data);
 }
 
+/** Ficha del cliente sin relaciones (RUT para los comprobantes de la OT). */
+export async function getCustomerProfile(id: string): Promise<CustomerProfile | null> {
+  await requireStaff();
+  const parsed = idSchema.safeParse(id);
+  if (!parsed.success) return null;
+  return getCustomerRepository().profile(parsed.data);
+}
+
 /** Evidencia fotográfica de una OT (recepción, proceso y entrega). */
 export async function getWorkOrderPhotos(workOrderId: string): Promise<WorkOrderPhoto[]> {
   await requireStaff();

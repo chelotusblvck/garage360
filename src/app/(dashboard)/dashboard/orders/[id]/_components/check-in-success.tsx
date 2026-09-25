@@ -5,25 +5,17 @@ import { usePathname, useRouter } from "next/navigation";
 import { CircleCheck, Mail, MessageCircle, Printer, X } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { WORKSHOP } from "@/lib/business";
-import { FUEL_LEVEL_LABEL } from "@/lib/checkin/shared";
 import { whatsappUrl } from "@/lib/customers/shared";
-import { formatKm, formatPlate } from "@/lib/format";
+import { receptionMessage } from "@/lib/orders/documents";
 import type { WorkOrderSummary } from "@/lib/orders/types";
 
 /** Aviso tras el check-in: imprimir o enviar el comprobante de recepción. */
 export function CheckInSuccess({ order, photoCount }: { order: WorkOrderSummary; photoCount: number }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { customer, motorcycle: moto } = order;
+  const { customer } = order;
 
-  const message = [
-    `Hola ${customer.name.split(" ")[0]}, recibimos tu ${moto.brand} ${moto.model} (${formatPlate(moto.plate)}) en ${WORKSHOP.name}.`,
-    `Orden de trabajo ${order.folio}` +
-      (order.km_at_intake !== null ? ` · ${formatKm(order.km_at_intake)}` : "") +
-      (order.fuel_level ? ` · combustible ${FUEL_LEVEL_LABEL[order.fuel_level]}` : "") +
-      ".",
-    `Registramos ${photoCount} fotos del estado de ingreso. Te avisaremos apenas tengamos el diagnóstico.`,
-  ].join("\n");
+  const message = receptionMessage(order, photoCount);
 
   return (
     <div className="flex flex-col gap-3 rounded-xl bg-status-good/10 p-4 ring-1 ring-status-good/30 xl:flex-row xl:items-center" role="status">

@@ -87,6 +87,8 @@ export type CustomerDetail = {
 export interface CustomerRepository {
   list(query?: string): Promise<CustomerSummary[]>;
   detail(id: string): Promise<CustomerDetail | null>;
+  /** Solo la ficha (sin motos, OTs ni fotos): para comprobantes impresos. */
+  profile(id: string): Promise<CustomerProfile | null>;
   create(input: CustomerInput): Promise<CustomerProfile>;
   update(id: string, input: CustomerInput): Promise<CustomerProfile>;
   addMotorcycle(customerId: string, input: CustomerMotorcycleInput): Promise<CustomerMotorcycle>;

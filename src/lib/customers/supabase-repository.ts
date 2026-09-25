@@ -140,6 +140,13 @@ export const supabaseCustomerRepository: CustomerRepository = {
     });
   },
 
+  async profile(id) {
+    const supabase = await createClient();
+    const { data, error } = await supabase.from("customers").select(CUSTOMER_COLUMNS).eq("id", id).maybeSingle();
+    if (error) fail(error);
+    return data ? toProfile(data as Row) : null;
+  },
+
   async detail(id) {
     const supabase = await createClient();
     const [customer, motos, orders, purchases] = await Promise.all([

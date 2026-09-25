@@ -100,6 +100,11 @@ export const demoCustomerRepository: CustomerRepository = {
       .sort((a, b) => a.name.localeCompare(b.name, "es"));
   },
 
+  async profile(id) {
+    const customer = demoDb().customers.find((c) => c.id === id);
+    return customer ? toProfile(customer) : null;
+  },
+
   async detail(id) {
     const db = demoDb();
     const customer = db.customers.find((c) => c.id === id);

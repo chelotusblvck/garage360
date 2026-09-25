@@ -156,3 +156,24 @@
     @apply font-sans;
   }
 }
+/*
+ * Comprobantes de la OT (<WorkOrderDocument>, marcado con data-print-document).
+ * Si el documento está abierto en un diálogo del panel, window.print() imprime
+ * solo ese documento: se oculta el resto de la app, el fondo del diálogo y el
+ * bloqueo de scroll que el diálogo aplica a <html>/<body>.
+ */
+@media print {
+  body:has([data-print-document]) > :not(:has([data-print-document])) {
+    display: none !important;
+  }
+  body:has([data-print-document]) [data-slot="dialog-overlay"] {
+    display: none !important;
+  }
+  html:has([data-print-document]),
+  body:has([data-print-document]) {
+    position: static !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+}
