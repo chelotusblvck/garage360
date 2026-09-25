@@ -1,7 +1,6 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import Link from "next/link";
 import { ArrowRight, ShieldCheck, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -139,15 +138,6 @@ export function LoginForm({ next, initialPortal, demo }: Props) {
             ))}
           </ul>
         </section>
-      ) : null}
-
-      {portal === "workshop" ? (
-        <p className="text-center text-sm text-muted-foreground">
-          ¿Eres cliente del taller?{" "}
-          <Link href="/register" className="font-medium text-foreground underline-offset-4 hover:underline">
-            Crea tu cuenta
-          </Link>
-        </p>
       ) : null}
     </div>
   );
