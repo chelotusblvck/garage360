@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import { getCustomerProfile, getWorkOrderPhotos } from "@/app/actions/customers";
 import { getWorkOrderDetail } from "@/app/actions/orders";
 import { WorkOrderDocument } from "@/components/orders/work-order-document";
+import { getCurrentWorkshop } from "@/lib/auth";
 import { WORK_ORDER_DOC_TITLE, type WorkOrderDocType } from "@/lib/orders/documents";
+import { workshopBranding } from "@/lib/workshops/shared";
 import { PrintToolbar } from "./print-toolbar";
 
 export async function generateMetadata({ params, searchParams }: PageProps<"/print/orders/[id]">): Promise<Metadata> {
@@ -21,7 +23,7 @@ export default async function PrintWorkOrderPage({ params, searchParams }: PageP
     type === "reception" ? getWorkOrderPhotos(id) : Promise.resolve([]),
   ]);
   if (!order) notFound();
-  const profile = await getCustomerProfile(order.customer.id);
+  const [profile, workshop] = await Promise.all([getCustomerProfile(order.customer.id), getCurrentWorkshop()]);
 
   return (
     <>
@@ -32,6 +34,7 @@ export default async function PrintWorkOrderPage({ params, searchParams }: PageP
       />
       <WorkOrderDocument
         type={type}
+        workshop={workshopBranding(workshop)}
         order={order}
         customerRut={profile?.rut ?? null}
         photos={photos.filter((p) => p.stage === "reception")}

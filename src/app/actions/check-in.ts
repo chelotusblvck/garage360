@@ -5,7 +5,7 @@ import { z } from "zod";
 import { failure, success, validationFailure, type ActionResult } from "@/lib/action-result";
 import { getAppointmentRepository } from "@/lib/appointments/repository";
 import { AppointmentError, type Appointment } from "@/lib/appointments/types";
-import { requireStaff } from "@/lib/auth";
+import { denyStaffWrite, requireStaff } from "@/lib/auth";
 import { getCheckInRepository } from "@/lib/checkin/repository";
 import { checkInCaption } from "@/lib/checkin/shared";
 import { CheckInError, type CheckInResult } from "@/lib/checkin/types";
@@ -62,7 +62,8 @@ export async function getCheckInAppointments(includeId?: string | null): Promise
 
 /** Sube una foto de recepción (ya comprimida en el navegador) antes de crear la OT. */
 export async function stageCheckInPhoto(file: File): Promise<ActionResult<{ token: string }>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   if (!(file instanceof File) || file.size === 0) return failure("Selecciona una imagen");
   if (!(WORK_ORDER_PHOTO_TYPES as readonly string[]).includes(file.type)) {
     return failure("Formato no soportado (JPG, PNG, WebP o AVIF)");
@@ -78,7 +79,8 @@ export async function stageCheckInPhoto(file: File): Promise<ActionResult<{ toke
 
 /** Confirma la recepción: crea la OT "Recepcionada" con sus fotos de ingreso. */
 export async function completeCheckIn(data: unknown): Promise<ActionResult<CheckInResult>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsed = checkInSchema.safeParse(data);
   if (!parsed.success) return validationFailure(parsed.error);
   const input = parsed.data;

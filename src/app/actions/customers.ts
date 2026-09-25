@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { failure, success, validationFailure, type ActionResult } from "@/lib/action-result";
-import { requireStaff } from "@/lib/auth";
+import { denyStaffWrite, requireStaff } from "@/lib/auth";
 import { getCustomerRepository } from "@/lib/customers/repository";
 import {
   CustomerError,
@@ -82,7 +82,8 @@ export async function getWorkOrderPhotos(workOrderId: string): Promise<WorkOrder
 // ---------------------------------------------------------------------------
 
 export async function createCustomer(data: unknown): Promise<ActionResult<CustomerProfile>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsed = customerSchema.safeParse(data);
   if (!parsed.success) return validationFailure(parsed.error);
 
@@ -96,7 +97,8 @@ export async function createCustomer(data: unknown): Promise<ActionResult<Custom
 }
 
 export async function updateCustomer(id: string, data: unknown): Promise<ActionResult<CustomerProfile>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsedId = idSchema.safeParse(id);
   if (!parsedId.success) return failure("Cliente inválido");
   const parsed = customerSchema.safeParse(data);
@@ -112,7 +114,8 @@ export async function updateCustomer(id: string, data: unknown): Promise<ActionR
 }
 
 export async function addCustomerMotorcycle(customerId: string, data: unknown): Promise<ActionResult<CustomerMotorcycle>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsedId = idSchema.safeParse(customerId);
   if (!parsedId.success) return failure("Cliente inválido");
   const parsed = customerMotorcycleSchema.safeParse(data);
@@ -138,7 +141,8 @@ export async function uploadWorkOrderPhoto(
   category: PhotoStage,
   caption?: string | null
 ): Promise<ActionResult<WorkOrderPhoto>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsedId = idSchema.safeParse(workOrderId);
   if (!parsedId.success) return failure("Selecciona una orden de trabajo", { work_order_id: ["Selecciona una OT"] });
   const stage = photoStageSchema.safeParse(category);
@@ -166,7 +170,8 @@ export async function uploadWorkOrderPhoto(
 }
 
 export async function deleteWorkOrderPhoto(photoId: string): Promise<ActionResult<null>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsedId = idSchema.safeParse(photoId);
   if (!parsedId.success) return failure("Foto inválida");
 

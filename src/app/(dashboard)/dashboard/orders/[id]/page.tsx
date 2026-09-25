@@ -4,12 +4,14 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Gauge, HardHat, Lock, Mail, Phone, User } from "lucide-react";
 import { getCustomerProfile, getWorkOrderPhotos } from "@/app/actions/customers";
 import { getMechanics, getWorkOrderDetail } from "@/app/actions/orders";
+import { getCurrentWorkshop } from "@/lib/auth";
 import { StatusSelect } from "@/components/orders/status-select";
 import { WorkOrderStatusBadge } from "@/components/orders/work-order-status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency, formatDateTime, formatKm, formatNumber, formatRelativeDays, formatPlate } from "@/lib/format";
 import { WORK_ORDER_STATUS_LABEL } from "@/lib/labels";
 import { isEditable } from "@/lib/orders/workflow";
+import { workshopBranding } from "@/lib/workshops/shared";
 import { CheckInSuccess } from "./_components/check-in-success";
 import { DiagnosisCard } from "./_components/diagnosis-card";
 import { LaborCard } from "./_components/labor-card";
@@ -27,7 +29,8 @@ export default async function WorkOrderPage({ params, searchParams }: PageProps<
   const [{ id }, query] = await Promise.all([params, searchParams]);
   const [order, mechanics, photos] = await Promise.all([getWorkOrderDetail(id), getMechanics(), getWorkOrderPhotos(id)]);
   if (!order) notFound();
-  const profile = await getCustomerProfile(order.customer.id);
+  const [profile, workshop] = await Promise.all([getCustomerProfile(order.customer.id), getCurrentWorkshop()]);
+  const branding = workshopBranding(workshop);
   const receptionPhotos = photos.filter((p) => p.stage === "reception");
 
   const editable = isEditable(order.status);
@@ -37,7 +40,7 @@ export default async function WorkOrderPage({ params, searchParams }: PageProps<
     <div className="grid gap-6">
       <div className="grid gap-4">
         {query.recepcion === "1" ? (
-          <CheckInSuccess order={order} photoCount={receptionPhotos.length} />
+          <CheckInSuccess order={order} photoCount={receptionPhotos.length} workshopName={branding.name} />
         ) : null}
         <Link
           href="/dashboard/orders"
@@ -68,7 +71,7 @@ export default async function WorkOrderPage({ params, searchParams }: PageProps<
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <StatusSelect order={order} />
-            <OrderDocuments order={order} customerRut={profile?.rut ?? null} photos={receptionPhotos} />
+            <OrderDocuments order={order} workshop={branding} customerRut={profile?.rut ?? null} photos={receptionPhotos} />
           </div>
         </div>
 
@@ -95,7 +98,13 @@ export default async function WorkOrderPage({ params, searchParams }: PageProps<
             editable={editable}
           />
           <PartsCard orderId={order.id} parts={order.parts} subtotal={order.parts_amount} editable={editable} />
-          <LaborCard orderId={order.id} labor={order.labor} subtotal={order.labor_amount} editable={editable} />
+          <LaborCard
+            orderId={order.id}
+            labor={order.labor}
+            subtotal={order.labor_amount}
+            editable={editable}
+            hourlyRate={branding.hourlyRate}
+          />
         </div>
 
         <aside className="grid gap-4 lg:sticky lg:top-20">

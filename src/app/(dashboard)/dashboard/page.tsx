@@ -18,7 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { getDashboardMetrics } from "@/lib/data/metrics";
 import { formatCurrency, formatLongDate, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { KpiCard } from "./_components/kpi-card";
+import { KpiCard } from "@/components/dashboard/kpi-card";
 import { LowStockTable } from "./_components/low-stock-table";
 import { RevenueChart } from "./_components/revenue-chart";
 import { ServicesChart } from "./_components/services-chart";

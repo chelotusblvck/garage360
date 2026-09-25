@@ -36,15 +36,18 @@ const ROLE_LABEL: Record<SessionProfile["role"], string> = {
   admin: "Administrador",
   mechanic: "Mecánico",
   client: "Cliente",
+  superadmin: "Superadmin · soporte",
 };
 
 type AppSidebarProps = {
   profile: SessionProfile;
+  /** Taller que se está viendo (el propio o, en modo soporte, el elegido). */
+  workshop: { name: string; logoUrl: string | null };
   /** Contadores por href para mostrar como badge (p. ej. alertas de stock). */
   badges?: Partial<Record<string, number>>;
 };
 
-export function AppSidebar({ profile, badges = {} }: AppSidebarProps) {
+export function AppSidebar({ profile, workshop, badges = {} }: AppSidebarProps) {
   const pathname = usePathname();
   const initials = profile.name
     .split(" ")
@@ -60,12 +63,17 @@ export function AppSidebar({ profile, badges = {} }: AppSidebarProps) {
           <SidebarMenuItem>
             <SidebarMenuButton
               size="lg"
-              tooltip="MotoOps"
+              tooltip={workshop.name}
               render={<Link href="/dashboard" />}
             >
-              <LogoMark />
+              {workshop.logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- logo del taller en data URL
+                <img src={workshop.logoUrl} alt="" className="size-8 shrink-0 rounded-lg object-cover ring-1 ring-sidebar-foreground/10" />
+              ) : (
+                <LogoMark />
+              )}
               <span className="grid flex-1 text-left leading-tight">
-                <span className="truncate font-semibold">MotoOps</span>
+                <span className="truncate font-semibold">{workshop.name}</span>
                 <span className="truncate text-xs text-sidebar-foreground/60">
                   Panel del taller
                 </span>
@@ -112,7 +120,7 @@ export function AppSidebar({ profile, badges = {} }: AppSidebarProps) {
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Ver tienda" render={<Link href="/" />}>
+                <SidebarMenuButton tooltip="Ver tienda" render={<Link href="/inicio" />}>
                   <Store />
                   <span>Ver tienda online</span>
                 </SidebarMenuButton>

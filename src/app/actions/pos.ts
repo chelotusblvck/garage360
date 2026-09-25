@@ -3,12 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { failure, success, validationFailure, type ActionResult } from "@/lib/action-result";
-import { requireStaff } from "@/lib/auth";
-import { SALES_TAX } from "@/lib/business";
+import { denyStaffWrite, getCurrentWorkshop, requireStaff } from "@/lib/auth";
 import { loadCatalog, type Catalog } from "@/lib/sales/catalog";
 import { getSalesRepository } from "@/lib/sales/repository";
 import { summarizeSales } from "@/lib/sales/shared";
 import { SalesError, type SaleDetail, type SalesHistory } from "@/lib/sales/types";
+import { workshopBranding } from "@/lib/workshops/shared";
 import {
   posSaleSchema,
   salesHistoryFiltersSchema,
@@ -76,7 +76,8 @@ export async function processPosSale(
   customerId?: string | null,
   options: { applyTax?: boolean; amountTendered?: number | null; notes?: string | null } = {}
 ): Promise<ActionResult<SaleDetail>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsed = posSaleSchema.safeParse({
     items: cartItems,
     payment_method: paymentMethod,
@@ -93,7 +94,7 @@ export async function processPosSale(
       items,
       payment_method,
       customer_id,
-      tax_rate: apply_tax ? SALES_TAX.rate : 0,
+      tax_rate: apply_tax ? workshopBranding(await getCurrentWorkshop()).taxRate : 0,
       amount_tendered,
       notes,
     });

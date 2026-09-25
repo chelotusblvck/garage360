@@ -11,7 +11,7 @@ import {
   type BookingResult,
   type DaySummary,
 } from "@/lib/appointments/types";
-import { getCurrentProfile, requireStaff } from "@/lib/auth";
+import { READ_ONLY_MESSAGE, denyStaffWrite, getCurrentProfile, requireStaff } from "@/lib/auth";
 import { addDays, todayKey, zonedToUtc } from "@/lib/datetime";
 import {
   appointmentFiltersSchema,
@@ -119,7 +119,8 @@ export async function createAppointment(
   channel: "staff" | "public" = "staff"
 ): Promise<ActionResult<BookingResult>> {
   const profile = await getCurrentProfile();
-  const isStaff = channel === "staff" && profile !== null && profile.role !== "client";
+  if (channel === "staff" && profile?.support) return failure(READ_ONLY_MESSAGE);
+  const isStaff = channel === "staff" && (profile?.role === "admin" || profile?.role === "mechanic");
   if (channel === "staff" && !isStaff) return failure("No autorizado");
 
   const parsed = bookingSchema.safeParse(data);
@@ -140,7 +141,8 @@ export async function createAppointment(
 
 /** Confirmar, cancelar o marcar ausencia. (Reactivar = reagendar.) */
 export async function updateAppointmentStatus(id: string, status: AppointmentStatus): Promise<ActionResult<null>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsedId = idSchema.safeParse(id);
   const parsedStatus = appointmentStatusSchema.safeParse(status);
   if (!parsedId.success || !parsedStatus.success) return failure("Datos inválidos");
@@ -156,7 +158,8 @@ export async function updateAppointmentStatus(id: string, status: AppointmentSta
 }
 
 export async function rescheduleAppointment(id: string, date: string, time: string): Promise<ActionResult<null>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsedId = idSchema.safeParse(id);
   if (!parsedId.success) return failure("Cita inválida");
   const parsed = rescheduleSchema.safeParse({ date, time });

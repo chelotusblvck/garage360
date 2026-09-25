@@ -9,9 +9,11 @@ import type { WorkOrderPhoto } from "@/lib/customers/types";
 import { whatsappUrl } from "@/lib/customers/shared";
 import { WORK_ORDER_DOC_TITLE, invoiceMessage, receptionMessage, type WorkOrderDocType } from "@/lib/orders/documents";
 import type { WorkOrderDetail } from "@/lib/orders/types";
+import type { WorkshopBranding } from "@/lib/workshops/shared";
 
 type Props = {
   order: WorkOrderDetail;
+  workshop: WorkshopBranding;
   customerRut: string | null;
   /** Fotos de la etapa de recepción. */
   photos: WorkOrderPhoto[];
@@ -27,7 +29,7 @@ const DESCRIPTION: Record<WorkOrderDocType, string> = {
  * impresión directa (el CSS de impresión deja solo el documento) y envío por
  * WhatsApp. La versión en pestaña aparte sigue en /print/orders/[id].
  */
-export function OrderDocuments({ order, customerRut, photos }: Props) {
+export function OrderDocuments({ order, workshop, customerRut, photos }: Props) {
   const [open, setOpen] = useState(false);
   // Aparte de `open`: el contenido se mantiene durante la animación de cierre.
   const [type, setType] = useState<WorkOrderDocType>("reception");
@@ -38,7 +40,7 @@ export function OrderDocuments({ order, customerRut, photos }: Props) {
   }
 
   const phone = order.customer.phone;
-  const message = type === "reception" ? receptionMessage(order, photos.length) : invoiceMessage(order);
+  const message = type === "reception" ? receptionMessage(order, photos.length, workshop.name) : invoiceMessage(order, workshop);
 
   return (
     <>
@@ -63,6 +65,7 @@ export function OrderDocuments({ order, customerRut, photos }: Props) {
           <div className="-mx-4 overflow-y-auto bg-muted/60 px-4 py-4 print:m-0 print:overflow-visible print:bg-white print:p-0">
             <WorkOrderDocument
               type={type}
+              workshop={workshop}
               order={order}
               customerRut={customerRut}
               photos={type === "reception" ? photos : []}

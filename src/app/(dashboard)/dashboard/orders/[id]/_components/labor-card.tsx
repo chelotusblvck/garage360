@@ -13,7 +13,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { DEFAULT_HOURLY_RATE } from "@/lib/business";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import type { WorkOrderLabor } from "@/lib/orders/types";
 import { cn } from "@/lib/utils";
@@ -26,11 +25,14 @@ export function LaborCard({
   labor,
   subtotal,
   editable,
+  hourlyRate,
 }: {
   orderId: string;
   labor: WorkOrderLabor[];
   subtotal: number;
   editable: boolean;
+  /** Valor hora sugerido del taller (onboarding). */
+  hourlyRate: number;
 }) {
   const [confirm, confirmDialog] = useConfirm();
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -112,17 +114,17 @@ export function LaborCard({
           </div>
         )}
 
-        {editable ? <LaborForm orderId={orderId} /> : null}
+        {editable ? <LaborForm orderId={orderId} hourlyRate={hourlyRate} /> : null}
       </CardContent>
       {confirmDialog}
     </Card>
   );
 }
 
-function LaborForm({ orderId }: { orderId: string }) {
+function LaborForm({ orderId, hourlyRate }: { orderId: string; hourlyRate: number }) {
   const form = useForm<LaborItemValues, unknown, LaborItemInput>({
     resolver: zodResolver(laborItemSchema),
-    defaultValues: { description: "", hours: 1, hourly_rate: DEFAULT_HOURLY_RATE },
+    defaultValues: { description: "", hours: 1, hourly_rate: hourlyRate },
   });
   const {
     register,

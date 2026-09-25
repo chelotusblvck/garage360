@@ -1,13 +1,14 @@
 import type { WorkOrderPhoto } from "@/lib/customers/types";
-import { WORKSHOP } from "@/lib/business";
 import { FUEL_LEVEL_BARS, FUEL_LEVEL_LABEL } from "@/lib/checkin/shared";
 import { formatCurrency, formatDate, formatDateTime, formatKm, formatNumber, formatPlate, formatRut } from "@/lib/format";
 import { WORK_ORDER_STATUS_LABEL } from "@/lib/labels";
 import { WORK_ORDER_DOC_TITLE, invoiceTotals, type WorkOrderDocType } from "@/lib/orders/documents";
 import type { WorkOrderDetail } from "@/lib/orders/types";
+import type { WorkshopBranding } from "@/lib/workshops/shared";
 
 type Props = {
   type: WorkOrderDocType;
+  workshop: WorkshopBranding;
   order: WorkOrderDetail;
   /** RUT normalizado del cliente (de su ficha), si lo tiene. */
   customerRut: string | null;
@@ -23,7 +24,7 @@ const sectionTitle = "mb-1.5 text-xs font-semibold tracking-wider text-neutral-5
  * para verse igual en pantalla (tema claro u oscuro) que impreso. Lo usan la
  * página /print/orders/[id] y el diálogo de vista previa de la orden.
  */
-export function WorkOrderDocument({ type, order, customerRut, photos = [], issuedAt }: Props) {
+export function WorkOrderDocument({ type, workshop, order, customerRut, photos = [], issuedAt }: Props) {
   const { motorcycle: moto, customer } = order;
 
   return (
@@ -35,15 +36,19 @@ export function WorkOrderDocument({ type, order, customerRut, photos = [], issue
 
       {/* Encabezado */}
       <header className="flex items-start justify-between gap-6 border-b-2 border-neutral-900 pb-4">
-        <div>
-          <p className="text-lg font-bold tracking-tight">{WORKSHOP.name}</p>
-          <p className="text-xs text-neutral-600">
-            {WORKSHOP.legalName} · {WORKSHOP.taxId}
-          </p>
-          <p className="text-xs text-neutral-600">{WORKSHOP.address}</p>
-          <p className="text-xs text-neutral-600">
-            {WORKSHOP.phone} · {WORKSHOP.email}
-          </p>
+        <div className="flex items-start gap-3">
+          {workshop.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- documento imprimible
+            <img src={workshop.logoUrl} alt="" className="size-14 shrink-0 rounded object-contain" />
+          ) : null}
+          <div>
+            <p className="text-lg font-bold tracking-tight">{workshop.name}</p>
+            <p className="text-xs text-neutral-600">{workshop.legalLine}</p>
+            <p className="text-xs text-neutral-600">{workshop.address}</p>
+            <p className="text-xs text-neutral-600">
+              {[workshop.phone, workshop.email].filter(Boolean).join(" · ")}
+            </p>
+          </div>
         </div>
         <div className="text-right">
           <p className="text-xs font-medium tracking-widest text-neutral-500 uppercase">{WORK_ORDER_DOC_TITLE[type]}</p>
@@ -82,7 +87,7 @@ export function WorkOrderDocument({ type, order, customerRut, photos = [], issue
         <p className="rounded border border-neutral-300 p-3 whitespace-pre-line">{order.intake_reason}</p>
       </section>
 
-      {type === "reception" ? <ReceptionBody order={order} photos={photos} /> : <InvoiceBody order={order} />}
+      {type === "reception" ? <ReceptionBody order={order} photos={photos} policy={workshop.receptionPolicy} /> : <InvoiceBody order={order} taxRate={workshop.taxRate} />}
 
       {/* Firmas de conformidad */}
       <footer className="mt-10 grid break-inside-avoid grid-cols-2 gap-16 text-center text-xs text-neutral-600">
@@ -92,7 +97,7 @@ export function WorkOrderDocument({ type, order, customerRut, photos = [], issue
           Nombre y RUT
         </div>
         <div className="border-t border-neutral-900 pt-1.5">
-          Por {WORKSHOP.name}
+          Por {workshop.name}
           <br />
           {type === "reception" ? "Recepcionó" : "Entregó"}
         </div>
@@ -101,7 +106,7 @@ export function WorkOrderDocument({ type, order, customerRut, photos = [], issue
   );
 }
 
-function ReceptionBody({ order, photos }: { order: WorkOrderDetail; photos: WorkOrderPhoto[] }) {
+function ReceptionBody({ order, photos, policy }: { order: WorkOrderDetail; photos: WorkOrderPhoto[]; policy: string }) {
   return (
     <>
       <section className="grid grid-cols-2 gap-6">
@@ -158,18 +163,14 @@ function ReceptionBody({ order, photos }: { order: WorkOrderDetail; photos: Work
         </div>
       </section>
       <section className="text-xs text-neutral-600">
-        <p>
-          El cliente declara que las fotografías reflejan el estado de la unidad al ingreso. El cliente autoriza al taller a
-          realizar el diagnóstico de la unidad. Todo trabajo adicional será presupuestado y requerirá aprobación previa. Las
-          unidades no retiradas dentro de los 30 días posteriores a su aviso de finalización podrán generar cargos de guarda.
-        </p>
+        <p className="whitespace-pre-line">{policy}</p>
       </section>
     </>
   );
 }
 
-function InvoiceBody({ order }: { order: WorkOrderDetail }) {
-  const { net, tax, total, rate } = invoiceTotals(order.total_amount);
+function InvoiceBody({ order, taxRate }: { order: WorkOrderDetail; taxRate: number }) {
+  const { net, tax, total, rate } = invoiceTotals(order.total_amount, taxRate);
 
   return (
     <>

@@ -14,7 +14,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       <div className="flex min-h-svh flex-col">
         <header className="sticky top-0 z-20 border-b bg-background/85 backdrop-blur print:hidden">
           <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-6 px-4">
-            <Link href="/">
+            <Link href="/inicio">
               <Logo />
             </Link>
             <nav className="hidden items-center gap-5 text-sm sm:flex">

@@ -4,18 +4,25 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { CircleCheck, Mail, MessageCircle, Printer, X } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { WORKSHOP } from "@/lib/business";
 import { whatsappUrl } from "@/lib/customers/shared";
 import { receptionMessage } from "@/lib/orders/documents";
 import type { WorkOrderSummary } from "@/lib/orders/types";
 
 /** Aviso tras el check-in: imprimir o enviar el comprobante de recepción. */
-export function CheckInSuccess({ order, photoCount }: { order: WorkOrderSummary; photoCount: number }) {
+export function CheckInSuccess({
+  order,
+  photoCount,
+  workshopName,
+}: {
+  order: WorkOrderSummary;
+  photoCount: number;
+  workshopName: string;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const { customer } = order;
 
-  const message = receptionMessage(order, photoCount);
+  const message = receptionMessage(order, photoCount, workshopName);
 
   return (
     <div className="flex flex-col gap-3 rounded-xl bg-status-good/10 p-4 ring-1 ring-status-good/30 xl:flex-row xl:items-center" role="status">
@@ -48,7 +55,7 @@ export function CheckInSuccess({ order, photoCount }: { order: WorkOrderSummary;
         ) : null}
         {customer.email ? (
           <a
-            href={`mailto:${customer.email}?subject=${encodeURIComponent(`Recepción ${order.folio} · ${WORKSHOP.name}`)}&body=${encodeURIComponent(message)}`}
+            href={`mailto:${customer.email}?subject=${encodeURIComponent(`Recepción ${order.folio} · ${workshopName}`)}&body=${encodeURIComponent(message)}`}
             className={buttonVariants({ variant: "outline", size: "lg", className: "h-9 px-3" })}
           >
             <Mail data-icon="inline-start" />

@@ -9,7 +9,7 @@ import { isValidRut, normalizeRut } from "@/lib/rut";
 // ---------------------------------------------------------------------------
 // Enums
 // ---------------------------------------------------------------------------
-export const userRoleSchema = z.enum(["admin", "mechanic", "client"]);
+export const userRoleSchema = z.enum(["admin", "mechanic", "client", "superadmin"]);
 export const serviceTypeSchema = z.enum(["maintenance", "inspection", "repair"]);
 export const appointmentStatusSchema = z.enum([
   "scheduled",
@@ -532,12 +532,17 @@ export const convertAppointmentSchema = z.object({
 // ---------------------------------------------------------------------------
 // Clientes, motos y evidencia fotográfica
 // ---------------------------------------------------------------------------
-/** Texto opcional de formulario: "" → null. */
+/**
+ * Texto opcional de formulario: "" → null. Acepta también null / undefined para
+ * que el resultado vuelva a validar igual: el cliente envía la salida ya
+ * transformada y el servidor la valida con el mismo esquema (idempotente).
+ */
 const optionalText = (max: number) =>
   z
     .string()
     .trim()
     .max(max, `Máximo ${max} caracteres`)
+    .nullish()
     .transform((v) => v || null);
 
 export const customerSchema = z.object({
@@ -547,12 +552,14 @@ export const customerSchema = z.object({
     .trim()
     .max(14)
     .refine((v) => !v || isValidRut(v), "RUT inválido (revisa el dígito verificador)")
+    .nullish()
     .transform((v) => (v ? normalizeRut(v) : null)),
   phone: z
     .string()
     .trim()
     .max(20)
     .refine((v) => !v || PHONE_REGEX.test(v), "Teléfono inválido")
+    .nullish()
     .transform((v) => v || null),
   email: z
     .string()
@@ -560,6 +567,7 @@ export const customerSchema = z.object({
     .toLowerCase()
     .max(120)
     .refine((v) => !v || z.email().safeParse(v).success, "Email inválido")
+    .nullish()
     .transform((v) => v || null),
   address: optionalText(160),
   city: optionalText(60),
@@ -585,6 +593,7 @@ export const customerMotorcycleSchema = z.object({
     .trim()
     .toUpperCase()
     .refine((v) => !v || VIN_REGEX.test(v), "VIN inválido (17 caracteres, sin I/O/Q)")
+    .nullish()
     .transform((v) => v || null),
   current_km: z
     .number({ error: "Kilometraje inválido" })
@@ -656,6 +665,100 @@ export const checkInSchema = z
   });
 
 // ---------------------------------------------------------------------------
+// Talleres: onboarding (tabla workshops / workshop_staff)
+// ---------------------------------------------------------------------------
+export const staffRoleSchema = z.enum(["mechanic", "admin"]);
+
+/** Logo como data URL (ya comprimido en el navegador): ~300 KB como máximo. */
+const LOGO_MAX_CHARS = 400_000;
+
+export const workshopProfileSchema = z.object({
+  name: z.string().trim().min(2, "Ingresa el nombre comercial").max(120, "Máximo 120 caracteres"),
+  rut: z
+    .string()
+    .trim()
+    .min(1, "Ingresa el RUT del taller")
+    .max(14)
+    .refine((v) => isValidRut(v), "RUT inválido (revisa el dígito verificador)")
+    .transform((v) => normalizeRut(v)),
+  city: z.string().trim().min(2, "Ingresa la comuna").max(60, "Máximo 60 caracteres"),
+  address: z.string().trim().min(5, "Ingresa la dirección").max(160, "Máximo 160 caracteres"),
+  phone,
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(120)
+    .refine((v) => !v || z.email().safeParse(v).success, "Email inválido")
+    .nullish()
+    .transform((v) => v || null),
+  specialty: optionalText(80),
+  logo_url: z
+    .string()
+    .max(LOGO_MAX_CHARS, "El logo es demasiado pesado")
+    .refine((v) => !v || v.startsWith("data:image/"), "Formato de logo inválido")
+    .nullish()
+    .transform((v) => v || null),
+});
+
+export const workshopStaffSchema = z.object({
+  name: z.string().trim().min(2, "Ingresa nombre y apellido").max(120, "Máximo 120 caracteres"),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(120)
+    .refine((v) => !v || z.email().safeParse(v).success, "Email inválido")
+    .nullish()
+    .transform((v) => v || null),
+  phone: z
+    .string()
+    .trim()
+    .max(20)
+    .refine((v) => !v || PHONE_REGEX.test(v), "Teléfono inválido")
+    .nullish()
+    .transform((v) => v || null),
+  role: staffRoleSchema,
+  specialty: optionalText(80),
+});
+
+export const workshopSettingsSchema = z.object({
+  hourly_rate: z
+    .number({ error: "Ingresa el valor hora" })
+    .int("Sin decimales (CLP)")
+    .min(1_000, "Mínimo $1.000")
+    .max(1_000_000, "Máximo $1.000.000"),
+  /** En el formulario va en porcentaje (19); se guarda como fracción (0.19). */
+  tax_percent: z
+    .number({ error: "Ingresa el IVA" })
+    .min(0, "No puede ser negativo")
+    .max(50, "Máximo 50 %")
+    .multipleOf(0.1, "Máximo 1 decimal"),
+  reception_policy: z
+    .string()
+    .trim()
+    .min(20, "Describe la política (mín. 20 caracteres)")
+    .max(2000, "Máximo 2000 caracteres"),
+});
+
+export const onboardingSchema = z
+  .object({
+    profile: workshopProfileSchema,
+    staff: z.array(workshopStaffSchema).max(30, "Máximo 30 personas"),
+    settings: workshopSettingsSchema,
+  })
+  .superRefine((d, ctx) => {
+    const seen = new Set<string>();
+    d.staff.forEach((s, i) => {
+      if (!s.email) return;
+      if (seen.has(s.email)) {
+        ctx.addIssue({ code: "custom", path: ["staff", i, "email"], message: "Email repetido" });
+      }
+      seen.add(s.email);
+    });
+  });
+
+// ---------------------------------------------------------------------------
 // Tipos inferidos
 // ---------------------------------------------------------------------------
 export type UserRole = z.infer<typeof userRoleSchema>;
@@ -666,6 +769,9 @@ export type SaleChannel = z.infer<typeof saleChannelSchema>;
 export type SaleStatus = z.infer<typeof saleStatusSchema>;
 export type PaymentMethod = z.infer<typeof paymentMethodSchema>;
 
+export type StaffRole = z.infer<typeof staffRoleSchema>;
+export type OnboardingValues = z.input<typeof onboardingSchema>;
+export type OnboardingInput = z.output<typeof onboardingSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type MotorcycleInput = z.infer<typeof motorcycleSchema>;

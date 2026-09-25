@@ -8,7 +8,7 @@ import {
   validationFailure,
   type ActionResult,
 } from "@/lib/action-result";
-import { requireStaff } from "@/lib/auth";
+import { denyStaffWrite, requireStaff } from "@/lib/auth";
 import { getInventoryRepository } from "@/lib/inventory/repository";
 import {
   InventoryError,
@@ -79,7 +79,8 @@ export async function getStockMovements(productId: string): Promise<ActionResult
 // ---------------------------------------------------------------------------
 
 export async function createProduct(data: unknown): Promise<ActionResult<Product>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsed = productSchema.safeParse(data);
   if (!parsed.success) return validationFailure(parsed.error);
 
@@ -93,7 +94,8 @@ export async function createProduct(data: unknown): Promise<ActionResult<Product
 }
 
 export async function updateProduct(id: string, data: unknown): Promise<ActionResult<Product>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsedId = idSchema.safeParse(id);
   if (!parsedId.success) return failure("Producto inválido");
   const parsed = productSchema.safeParse(data);
@@ -121,7 +123,8 @@ export async function adjustStock(
   reason: ManualStockReason,
   note?: string | null
 ): Promise<ActionResult<Product>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsedId = idSchema.safeParse(productId);
   if (!parsedId.success) return failure("Producto inválido");
   const parsed = stockAdjustmentSchema.safeParse({ quantity, type, reason, note });
@@ -140,7 +143,8 @@ export async function adjustStock(
 }
 
 export async function uploadProductImage(formData: FormData): Promise<ActionResult<{ url: string }>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const file = formData.get("file");
 
   if (!(file instanceof File) || file.size === 0) {

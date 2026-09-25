@@ -143,14 +143,18 @@ as $$
   select coalesce(public.get_my_role() = 'admin', false);
 $$;
 
--- Crea el perfil automáticamente al registrarse. El rol SIEMPRE nace como
--- 'client': nunca se confía en metadata enviada por el usuario para el rol.
+-- Crea el perfil automáticamente al registrarse. El rol nace como 'client':
+-- nunca se confía en metadata enviada por el usuario para el rol. La única
+-- excepción es una invitación de staff que el admin del taller cargó en
+-- workshop_staff (sección 13) con ese mismo email.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_invite record;  -- workshop_staff (sección 13): se resuelve al ejecutar
 begin
   insert into public.profiles (id, email, name, phone)
   values (
@@ -160,6 +164,22 @@ begin
     new.raw_user_meta_data ->> 'phone'
   )
   on conflict (id) do nothing;
+
+  select * into v_invite
+    from public.workshop_staff
+   where profile_id is null
+     and email is not null
+     and lower(email) = lower(new.email)
+   order by created_at
+   limit 1;
+
+  if found then
+    update public.profiles
+       set role = v_invite.role, workshop_id = v_invite.workshop_id
+     where id = new.id;
+    update public.workshop_staff set profile_id = new.id where id = v_invite.id;
+    return new;
+  end if;
 
   -- Vincula (o crea) su ficha de cliente del taller: si ya lo atendimos en
   -- mostrador con el mismo email, sus motos y OTs quedan asociadas a la cuenta.
@@ -2350,3 +2370,263 @@ create policy "work-order-photos: staff delete" on storage.objects
 -- funciones internas de check_in_work_order() (que corre como owner).
 revoke execute on function public.create_work_order(text, integer, uuid, uuid, uuid, text, text, text, text, text, smallint, text, text) from authenticated;
 revoke execute on function public.convert_appointment_to_work_order(uuid, uuid, integer) from authenticated;
+
+-- =============================================================================
+-- 13. Talleres (tenants), onboarding y superadministración
+-- -----------------------------------------------------------------------------
+-- Capa de talleres: cada perfil de staff pertenece a un taller, que guarda sus
+-- datos comerciales, tarifas y el estado del onboarding. Los datos operativos
+-- (OTs, ventas, inventario, clientes…) aún NO llevan workshop_id: todos
+-- pertenecen al taller principal. El aislamiento por taller es una etapa aparte.
+--
+-- IMPORTANTE: 'superadmin' se agrega al enum en este mismo script, así que no
+-- se usa como literal del tipo user_role (se compara como texto).
+-- =============================================================================
+alter type public.user_role add value if not exists 'superadmin';
+
+create table if not exists public.workshops (
+  id                   uuid primary key default gen_random_uuid(),
+  name                 text not null,
+  rut                  text,
+  address              text,
+  city                 text,
+  phone                text,
+  email                text,
+  specialty            text,
+  logo_url             text,           -- data URL comprimida en el navegador
+  hourly_rate          integer not null default 45000,
+  tax_rate             numeric(4, 3) not null default 0.19,
+  reception_policy     text,
+  onboarding_completed boolean not null default false,
+  onboarded_at         timestamptz,
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now(),
+  constraint workshops_name_length check (char_length(trim(name)) between 2 and 120),
+  constraint workshops_rut_valid check (rut is null or public.rut_is_valid(rut)),
+  constraint workshops_phone_format check (phone is null or phone ~ '^\+?[0-9\s\-()]{6,20}$'),
+  constraint workshops_hourly_rate_range check (hourly_rate between 1000 and 1000000),
+  constraint workshops_tax_rate_range check (tax_rate between 0 and 0.5),
+  constraint workshops_logo_size check (logo_url is null or (logo_url like 'data:image/%' and char_length(logo_url) <= 400000)),
+  constraint workshops_policy_length check (reception_policy is null or char_length(reception_policy) <= 2000)
+);
+
+drop trigger if exists workshops_updated_at on public.workshops;
+create trigger workshops_updated_at
+  before update on public.workshops
+  for each row execute function public.set_updated_at();
+
+-- Taller principal: dueño de los datos existentes (mismo id que PRIMARY_WORKSHOP_ID).
+insert into public.workshops (id, name)
+values ('00000000-0000-0000-0000-000000000001', 'MotoOps Taller')
+on conflict (id) do nothing;
+
+alter table public.profiles
+  add column if not exists workshop_id uuid references public.workshops (id) on delete set null;
+create index if not exists profiles_workshop_idx on public.profiles (workshop_id);
+
+-- El staff existente queda en el taller principal (su admin verá el onboarding).
+update public.profiles
+   set workshop_id = '00000000-0000-0000-0000-000000000001'
+ where workshop_id is null
+   and role in ('admin', 'mechanic');
+
+-- Equipo cargado en el onboarding. Con email funciona como invitación: al
+-- registrarse (handle_new_user) o si ya tenía cuenta, recibe el rol de staff.
+create table if not exists public.workshop_staff (
+  id           uuid primary key default gen_random_uuid(),
+  workshop_id  uuid not null references public.workshops (id) on delete cascade,
+  name         text not null,
+  email        text,
+  phone        text,
+  role         public.user_role not null default 'mechanic',
+  specialty    text,
+  profile_id   uuid references public.profiles (id) on delete set null,
+  created_at   timestamptz not null default now(),
+  constraint workshop_staff_role_valid check (role in ('admin', 'mechanic')),
+  constraint workshop_staff_name_length check (char_length(trim(name)) between 2 and 120),
+  constraint workshop_staff_email_format check (email is null or email ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'),
+  constraint workshop_staff_phone_format check (phone is null or phone ~ '^\+?[0-9\s\-()]{6,20}$')
+);
+
+create unique index if not exists workshop_staff_email_unique
+  on public.workshop_staff (workshop_id, lower(email))
+  where email is not null;
+
+create or replace function public.is_superadmin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(public.get_my_role()::text = 'superadmin', false);
+$$;
+
+create or replace function public.my_workshop_id()
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select workshop_id from public.profiles where id = auth.uid();
+$$;
+
+-- Onboarding atómico: datos del taller + equipo, y marca onboarding_completed.
+-- Toma el taller del perfil (no se puede configurar uno ajeno).
+create or replace function public.complete_workshop_onboarding(p_workshop jsonb, p_staff jsonb default '[]')
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_workshop uuid := public.my_workshop_id();
+begin
+  if not public.is_admin() or v_workshop is null then
+    raise exception 'Solo el administrador del taller puede configurarlo' using errcode = '42501';
+  end if;
+
+  update public.workshops
+     set name                 = trim(p_workshop ->> 'name'),
+         rut                  = nullif(trim(p_workshop ->> 'rut'), ''),
+         address              = nullif(trim(p_workshop ->> 'address'), ''),
+         city                 = nullif(trim(p_workshop ->> 'city'), ''),
+         phone                = nullif(trim(p_workshop ->> 'phone'), ''),
+         email                = nullif(lower(trim(p_workshop ->> 'email')), ''),
+         specialty            = nullif(trim(p_workshop ->> 'specialty'), ''),
+         logo_url             = nullif(p_workshop ->> 'logo_url', ''),
+         hourly_rate          = (p_workshop ->> 'hourly_rate')::integer,
+         tax_rate             = (p_workshop ->> 'tax_rate')::numeric,
+         reception_policy     = nullif(trim(p_workshop ->> 'reception_policy'), ''),
+         onboarding_completed = true,
+         onboarded_at         = now()
+   where id = v_workshop;
+
+  insert into public.workshop_staff (workshop_id, name, email, phone, role, specialty)
+  select v_workshop,
+         trim(s ->> 'name'),
+         nullif(lower(trim(s ->> 'email')), ''),
+         nullif(trim(s ->> 'phone'), ''),
+         (case when s ->> 'role' = 'admin' then 'admin' else 'mechanic' end)::public.user_role,
+         nullif(trim(s ->> 'specialty'), '')
+    from jsonb_array_elements(coalesce(p_staff, '[]'::jsonb)) as s
+  on conflict do nothing;
+
+  -- Quienes ya tenían cuenta de cliente con ese email pasan a ser staff del taller.
+  update public.profiles p
+     set role = ws.role, workshop_id = v_workshop
+    from public.workshop_staff ws
+   where ws.workshop_id = v_workshop
+     and ws.profile_id is null
+     and ws.email is not null
+     and lower(p.email) = lower(ws.email)
+     and p.role = 'client';
+
+  update public.workshop_staff ws
+     set profile_id = p.id
+    from public.profiles p
+   where ws.workshop_id = v_workshop
+     and ws.profile_id is null
+     and ws.email is not null
+     and lower(p.email) = lower(ws.email)
+     and p.workshop_id = v_workshop;
+end;
+$$;
+
+-- Directorio de talleres (superadmin): con cuentas de staff y equipo registrado.
+create or replace function public.admin_list_workshops()
+returns table (
+  id uuid, name text, rut text, city text, phone text, email text, specialty text, logo_url text,
+  onboarding_completed boolean, created_at timestamptz, users bigint, staff bigint
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select w.id, w.name, w.rut, w.city, w.phone, w.email, w.specialty, w.logo_url,
+         w.onboarding_completed, w.created_at,
+         (select count(*) from public.profiles p where p.workshop_id = w.id and p.role in ('admin', 'mechanic')),
+         (select count(*) from public.workshop_staff s where s.workshop_id = w.id)
+    from public.workshops w
+   where public.is_superadmin()
+   order by w.created_at desc;
+$$;
+
+-- Métricas consolidadas de la plataforma (superadmin).
+create or replace function public.admin_global_metrics()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case when public.is_superadmin() then jsonb_build_object(
+    'workshops',        (select count(*) from public.workshops),
+    'onboarded',        (select count(*) from public.workshops where onboarding_completed),
+    'staff_users',      (select count(*) from public.profiles where role in ('admin', 'mechanic') and workshop_id is not null),
+    'work_orders',      (select count(*) from public.work_orders),
+    'open_work_orders', (select count(*) from public.work_orders where status not in ('delivered', 'cancelled')),
+    'sales_total',      (select coalesce(sum(total), 0) from public.sales where status = 'paid'),
+    'sales_count',      (select count(*) from public.sales where status = 'paid')
+  ) end;
+$$;
+
+grant execute on function public.complete_workshop_onboarding(jsonb, jsonb) to authenticated;
+grant execute on function public.admin_list_workshops() to authenticated;
+grant execute on function public.admin_global_metrics() to authenticated;
+
+alter table public.workshops      enable row level security;
+alter table public.workshop_staff enable row level security;
+
+drop policy if exists "workshops: members read own, superadmin all" on public.workshops;
+create policy "workshops: members read own, superadmin all" on public.workshops
+  for select to authenticated
+  using (public.is_superadmin() or id = public.my_workshop_id());
+
+drop policy if exists "workshops: admin updates own" on public.workshops;
+create policy "workshops: admin updates own" on public.workshops
+  for update to authenticated
+  using (public.is_admin() and id = public.my_workshop_id())
+  with check (public.is_admin() and id = public.my_workshop_id());
+
+drop policy if exists "workshops: superadmin creates" on public.workshops;
+create policy "workshops: superadmin creates" on public.workshops
+  for insert to authenticated
+  with check (public.is_superadmin());
+
+drop policy if exists "workshop_staff: read own workshop" on public.workshop_staff;
+create policy "workshop_staff: read own workshop" on public.workshop_staff
+  for select to authenticated
+  using (public.is_superadmin() or (public.is_staff() and workshop_id = public.my_workshop_id()));
+
+drop policy if exists "workshop_staff: admin manages own" on public.workshop_staff;
+create policy "workshop_staff: admin manages own" on public.workshop_staff
+  for all to authenticated
+  using (public.is_admin() and workshop_id = public.my_workshop_id())
+  with check (public.is_admin() and workshop_id = public.my_workshop_id());
+
+-- Modo soporte: el superadmin LEE todo, pero no tiene políticas de escritura
+-- (is_staff() es falso para él), así que el panel queda en solo lectura.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'profiles', 'customers', 'motorcycles', 'products', 'appointments', 'work_orders',
+    'work_order_parts', 'work_order_labor', 'work_order_photos', 'sales', 'order_items',
+    'inventory_movements'
+  ] loop
+    execute format('drop policy if exists %I on public.%I', t || ': superadmin read', t);
+    execute format(
+      'create policy %I on public.%I for select to authenticated using (public.is_superadmin())',
+      t || ': superadmin read', t
+    );
+  end loop;
+end $$;
+
+drop policy if exists "work-order-photos: superadmin read" on storage.objects;
+create policy "work-order-photos: superadmin read" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'work-order-photos' and public.is_superadmin());

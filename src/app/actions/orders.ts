@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { failure, success, validationFailure, type ActionResult } from "@/lib/action-result";
-import { requireStaff } from "@/lib/auth";
+import { denyStaffWrite, requireStaff } from "@/lib/auth";
 import { getInventoryRepository } from "@/lib/inventory/repository";
 import type { Product } from "@/lib/inventory/types";
 import { getWorkOrderRepository } from "@/lib/orders/repository";
@@ -93,7 +93,8 @@ export async function searchProductsForOrder(query: string): Promise<Product[]> 
 // El alta de OT vive en actions/check-in.ts: exige las fotos de recepción.
 
 export async function updateWorkOrderStatus(id: string, status: WorkOrderStatus): Promise<ActionResult<null>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsedId = idSchema.safeParse(id);
   const parsedStatus = workOrderStatusSchema.safeParse(status);
   if (!parsedId.success || !parsedStatus.success) return failure("Datos inválidos");
@@ -108,7 +109,8 @@ export async function updateWorkOrderStatus(id: string, status: WorkOrderStatus)
 }
 
 export async function updateWorkOrderDetails(id: string, data: unknown): Promise<ActionResult<null>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsedId = idSchema.safeParse(id);
   if (!parsedId.success) return failure("Orden inválida");
   const parsed = workOrderDetailsSchema.safeParse(data);
@@ -135,7 +137,8 @@ export async function addOrderItem(
   quantity: number,
   unitPrice: number | null = null
 ): Promise<ActionResult<null>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsedId = idSchema.safeParse(workOrderId);
   if (!parsedId.success) return failure("Orden inválida");
   const parsed = orderPartSchema.safeParse({ product_id: productId, quantity, unit_price: unitPrice });
@@ -153,7 +156,8 @@ export async function addOrderItem(
 
 /** Quita un repuesto de la OT y devuelve las unidades al inventario. */
 export async function removeOrderItem(workOrderId: string, itemId: string): Promise<ActionResult<null>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const ids = z.tuple([idSchema, idSchema]).safeParse([workOrderId, itemId]);
   if (!ids.success) return failure("Datos inválidos");
 
@@ -172,7 +176,8 @@ export async function addLaborItem(
   hours: number,
   hourlyRate: number
 ): Promise<ActionResult<null>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const parsedId = idSchema.safeParse(workOrderId);
   if (!parsedId.success) return failure("Orden inválida");
   const parsed = laborItemSchema.safeParse({ description, hours, hourly_rate: hourlyRate });
@@ -188,7 +193,8 @@ export async function addLaborItem(
 }
 
 export async function removeLaborItem(workOrderId: string, laborId: string): Promise<ActionResult<null>> {
-  await requireStaff();
+  const denied = await denyStaffWrite();
+  if (denied) return denied;
   const ids = z.tuple([idSchema, idSchema]).safeParse([workOrderId, laborId]);
   if (!ids.success) return failure("Datos inválidos");
 
