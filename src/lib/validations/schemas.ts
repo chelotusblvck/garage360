@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isValidRut, normalizeRut } from "@/lib/rut";
+import { PLAN_KEYS, SETUP_TYPES } from "@/lib/workshops/plans";
 
 /*
  * Esquemas Zod alineados 1:1 con supabase/schema.sql.
@@ -741,6 +742,23 @@ export const workshopSettingsSchema = z.object({
     .max(2000, "Máximo 2000 caracteres"),
 });
 
+/** Alta de un taller desde la consola de superadmin (el resto lo completa su admin en el onboarding). */
+export const newWorkshopSchema = z.object({
+  plan: z.enum(PLAN_KEYS, { error: "Elige un plan" }),
+  setup_type: z.enum(SETUP_TYPES, { error: "Elige la modalidad de implementación" }),
+  name: z.string().trim().min(2, "Ingresa el nombre comercial").max(120, "Máximo 120 caracteres"),
+  city: optionalText(60),
+  phone: z
+    .string()
+    .trim()
+    .max(20)
+    .refine((v) => !v || PHONE_REGEX.test(v), "Teléfono inválido")
+    .nullish()
+    .transform((v) => v || null),
+  admin_name: z.string().trim().min(2, "Ingresa nombre y apellido").max(120, "Máximo 120 caracteres"),
+  admin_email: z.email("Email inválido").trim().toLowerCase().max(120),
+});
+
 export const onboardingSchema = z
   .object({
     profile: workshopProfileSchema,
@@ -770,6 +788,8 @@ export type SaleStatus = z.infer<typeof saleStatusSchema>;
 export type PaymentMethod = z.infer<typeof paymentMethodSchema>;
 
 export type StaffRole = z.infer<typeof staffRoleSchema>;
+export type NewWorkshopValues = z.input<typeof newWorkshopSchema>;
+export type NewWorkshopInput = z.output<typeof newWorkshopSchema>;
 export type OnboardingValues = z.input<typeof onboardingSchema>;
 export type OnboardingInput = z.output<typeof onboardingSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;

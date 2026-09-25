@@ -1,4 +1,5 @@
-import type { OnboardingInput, StaffRole } from "@/lib/validations/schemas";
+import type { NewWorkshopInput, OnboardingInput, StaffRole } from "@/lib/validations/schemas";
+import type { PlanKey, SetupType } from "./plans";
 
 /** Taller (tenant): datos comerciales, tarifas y estado del onboarding. */
 export type Workshop = {
@@ -19,6 +20,12 @@ export type Workshop = {
   /** Fracción: 0.19 = 19 %. */
   tax_rate: number;
   reception_policy: string | null;
+  /** Plan de suscripción contratado. */
+  plan: PlanKey;
+  /** Modalidad de implementación: autogestión o llave en mano (VIP). */
+  setup_type: SetupType;
+  /** Fee de setup cobrado al alta (CLP, pago único). */
+  setup_fee: number;
   onboarding_completed: boolean;
   onboarded_at: string | null;
   created_at: string;
@@ -40,7 +47,7 @@ export type WorkshopStaffMember = {
 /** Fila del directorio de talleres (superadmin). */
 export type WorkshopSummary = Pick<
   Workshop,
-  "id" | "name" | "rut" | "city" | "phone" | "email" | "specialty" | "logo_url" | "onboarding_completed" | "created_at"
+  "id" | "name" | "rut" | "city" | "phone" | "email" | "specialty" | "logo_url" | "onboarding_completed" | "created_at" | "plan" | "setup_type" | "setup_fee"
 > & {
   /** Cuentas de staff vinculadas al taller. */
   users: number;
@@ -64,6 +71,8 @@ export interface WorkshopRepository {
   get(id: string): Promise<Workshop | null>;
   /** Guarda el onboarding de forma atómica y marca onboarding_completed. */
   completeOnboarding(id: string, input: OnboardingInput): Promise<Workshop>;
+  /** Alta desde /admin: taller con onboarding pendiente + invitación a su admin. */
+  create(input: NewWorkshopInput, setupFee: number): Promise<Workshop>;
   list(): Promise<WorkshopSummary[]>;
   globalMetrics(): Promise<GlobalMetrics>;
 }

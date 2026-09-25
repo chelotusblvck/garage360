@@ -4,6 +4,7 @@ import { DEMO_ACCOUNTS, DEMO_NEW_WORKSHOP_ID } from "@/lib/demo/accounts";
 import { daysAgo, demoDb } from "@/lib/demo/db";
 import { rutCheckDigit } from "@/lib/rut";
 import { round2 } from "@/lib/sales/shared";
+import { SETUPS } from "./plans";
 import { DEFAULT_RECEPTION_POLICY, PRIMARY_WORKSHOP_ID, taxRateFromPercent } from "./shared";
 import { WorkshopError, type Workshop, type WorkshopRepository, type WorkshopStaffMember } from "./types";
 
@@ -30,6 +31,9 @@ function workshop(partial: Partial<Workshop> & Pick<Workshop, "id" | "name" | "c
     hourly_rate: 45_000,
     tax_rate: 0.19,
     reception_policy: null,
+    plan: "starter",
+    setup_type: "diy",
+    setup_fee: 0,
     onboarding_completed: false,
     onboarded_at: null,
     ...partial,
@@ -49,6 +53,9 @@ function seed(): DemoWorkshopStore {
         email: WORKSHOP.email,
         specialty: "Ducati y alta gama",
         reception_policy: DEFAULT_RECEPTION_POLICY,
+        plan: "pro",
+        setup_type: "turnkey",
+        setup_fee: SETUPS.turnkey.fee,
         onboarding_completed: true,
         onboarded_at: daysAgo(400, 11),
         created_at: daysAgo(400, 10),
@@ -82,6 +89,7 @@ function seed(): DemoWorkshopStore {
         phone: "+56 9 6698 0312",
         email: "taller@enduroandes.cl",
         specialty: "Off-road y enduro",
+        plan: "pro",
         hourly_rate: 35_000,
         onboarding_completed: true,
         onboarded_at: daysAgo(58, 16),
@@ -90,6 +98,9 @@ function seed(): DemoWorkshopStore {
       workshop({
         id: "00000000-0000-0000-0000-000000000005",
         name: "Scooter Center Ñuñoa",
+        plan: "enterprise",
+        setup_type: "turnkey",
+        setup_fee: SETUPS.turnkey.fee,
         email: "hola@scootercenter.cl",
         created_at: daysAgo(5, 18),
       }),
@@ -146,6 +157,42 @@ export const demoWorkshopRepository: WorkshopRepository = {
     return { ...w };
   },
 
+  async create(input, setupFee) {
+    const s = demoWorkshops();
+    const email = input.admin_email;
+    const taken =
+      DEMO_ACCOUNTS.some((a) => a.email === email && a.role !== "client") ||
+      s.staff.some((m) => m.email === email);
+    if (taken) throw new WorkshopError("Ese email ya es staff de un taller", "admin_email");
+
+    const now = new Date().toISOString();
+    const created = workshop({
+      id: crypto.randomUUID(),
+      name: input.name,
+      city: input.city,
+      phone: input.phone,
+      email,
+      plan: input.plan,
+      setup_type: input.setup_type,
+      setup_fee: setupFee,
+      created_at: now,
+    });
+    s.workshops.push(created);
+    // Invitación: en demo no hay registro de cuentas, así que queda pendiente.
+    s.staff.push({
+      id: crypto.randomUUID(),
+      workshop_id: created.id,
+      name: input.admin_name,
+      email,
+      phone: null,
+      role: "admin",
+      specialty: null,
+      profile_id: null,
+      created_at: now,
+    });
+    return { ...created };
+  },
+
   async list() {
     const s = demoWorkshops();
     return s.workshops
@@ -160,6 +207,9 @@ export const demoWorkshopRepository: WorkshopRepository = {
         logo_url: w.logo_url,
         onboarding_completed: w.onboarding_completed,
         created_at: w.created_at,
+        plan: w.plan,
+        setup_type: w.setup_type,
+        setup_fee: w.setup_fee,
         users: userCount(s, w.id),
         staff: s.staff.filter((m) => m.workshop_id === w.id).length,
       }))

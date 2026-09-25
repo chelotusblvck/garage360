@@ -211,6 +211,7 @@ create trigger on_auth_user_created
 
 -- Impide la escalada de privilegios: solo un admin (o el service role,
 -- donde auth.uid() es NULL) puede cambiar el rol de un perfil.
+-- El superadmin también (alta de talleres: admin_create_workshop, sección 13).
 create or replace function public.protect_profile_role()
 returns trigger
 language plpgsql
@@ -220,8 +221,18 @@ as $$
 begin
   if new.role is distinct from old.role
      and auth.uid() is not null
-     and not public.is_admin() then
+     and not public.is_admin()
+     and not public.is_superadmin() then
     raise exception 'Solo un administrador puede cambiar roles'
+      using errcode = '42501';
+  end if;
+  -- Otorgar o quitar el rol superadmin: solo otro superadmin (o el service role).
+  -- Sin esto, el admin de un taller podría promoverse y leer todos los talleres.
+  if new.role is distinct from old.role
+     and 'superadmin' in (new.role::text, old.role::text)
+     and auth.uid() is not null
+     and not public.is_superadmin() then
+    raise exception 'Solo un superadministrador puede asignar ese rol'
       using errcode = '42501';
   end if;
   return new;
@@ -2410,6 +2421,48 @@ create table if not exists public.workshops (
   constraint workshops_policy_length check (reception_policy is null or char_length(reception_policy) <= 2000)
 );
 
+-- Plan de suscripción y modalidad de implementación (alta desde /admin).
+-- Precios de referencia en src/lib/workshops/plans.ts; setup_fee guarda lo cobrado.
+alter table public.workshops add column if not exists plan text not null default 'starter';
+alter table public.workshops add column if not exists setup_type text not null default 'diy';
+alter table public.workshops add column if not exists setup_fee numeric(12, 0) not null default 0;
+
+do $$ begin
+  alter table public.workshops
+    add constraint workshops_plan_valid check (plan in ('starter', 'pro', 'enterprise'));
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table public.workshops
+    add constraint workshops_setup_valid check (
+      setup_type in ('diy', 'turnkey') and setup_fee >= 0 and (setup_type = 'turnkey' or setup_fee = 0)
+    );
+exception when duplicate_object then null; end $$;
+
+-- Plan y setup son datos de facturación: el admin del taller puede editar su
+-- ficha (política "workshops: admin updates own") pero no estos campos.
+create or replace function public.protect_workshop_billing()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if (new.plan, new.setup_type, new.setup_fee) is distinct from (old.plan, old.setup_type, old.setup_fee)
+     and auth.uid() is not null
+     and not public.is_superadmin() then
+    raise exception 'El plan y la implementación solo los cambia un superadministrador'
+      using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists workshops_protect_billing on public.workshops;
+create trigger workshops_protect_billing
+  before update on public.workshops
+  for each row execute function public.protect_workshop_billing();
+
 drop trigger if exists workshops_updated_at on public.workshops;
 create trigger workshops_updated_at
   before update on public.workshops
@@ -2535,9 +2588,12 @@ end;
 $$;
 
 -- Directorio de talleres (superadmin): con cuentas de staff y equipo registrado.
-create or replace function public.admin_list_workshops()
+-- drop: el tipo de retorno cambió (plan / setup); create or replace no lo permite.
+drop function if exists public.admin_list_workshops();
+create function public.admin_list_workshops()
 returns table (
   id uuid, name text, rut text, city text, phone text, email text, specialty text, logo_url text,
+  plan text, setup_type text, setup_fee numeric,
   onboarding_completed boolean, created_at timestamptz, users bigint, staff bigint
 )
 language sql
@@ -2546,6 +2602,7 @@ security definer
 set search_path = public
 as $$
   select w.id, w.name, w.rut, w.city, w.phone, w.email, w.specialty, w.logo_url,
+         w.plan, w.setup_type, w.setup_fee,
          w.onboarding_completed, w.created_at,
          (select count(*) from public.profiles p where p.workshop_id = w.id and p.role in ('admin', 'mechanic')),
          (select count(*) from public.workshop_staff s where s.workshop_id = w.id)
@@ -2553,6 +2610,60 @@ as $$
    where public.is_superadmin()
    order by w.created_at desc;
 $$;
+
+-- Alta de un taller (superadmin): taller con onboarding pendiente + invitación
+-- de su administrador en workshop_staff. Si ese email ya tiene cuenta de
+-- cliente, pasa a ser admin del taller de inmediato. Devuelve el id del taller.
+create or replace function public.admin_create_workshop(p_workshop jsonb)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id    uuid;
+  v_email text := lower(trim(p_workshop ->> 'admin_email'));
+begin
+  if not public.is_superadmin() then
+    raise exception 'Solo un superadministrador puede crear talleres' using errcode = '42501';
+  end if;
+  if v_email is null or v_email = '' then
+    raise exception 'Falta el email del administrador' using errcode = '23514';
+  end if;
+  if exists (select 1 from public.profiles where lower(email) = v_email and role in ('admin', 'mechanic'))
+     or exists (select 1 from public.workshop_staff where lower(email) = v_email) then
+    raise exception 'Ese email ya es staff de un taller' using errcode = '23505';
+  end if;
+
+  insert into public.workshops (name, city, phone, email, plan, setup_type, setup_fee)
+  values (
+    trim(p_workshop ->> 'name'),
+    nullif(trim(p_workshop ->> 'city'), ''),
+    nullif(trim(p_workshop ->> 'phone'), ''),
+    v_email,
+    p_workshop ->> 'plan',
+    p_workshop ->> 'setup_type',
+    coalesce((p_workshop ->> 'setup_fee')::numeric, 0)
+  )
+  returning id into v_id;
+
+  insert into public.workshop_staff (workshop_id, name, email, role)
+  values (v_id, trim(p_workshop ->> 'admin_name'), v_email, 'admin');
+
+  update public.profiles
+     set role = 'admin', workshop_id = v_id
+   where lower(email) = v_email and role = 'client';
+
+  update public.workshop_staff ws
+     set profile_id = p.id
+    from public.profiles p
+   where ws.workshop_id = v_id and lower(p.email) = v_email and p.workshop_id = v_id;
+
+  return v_id;
+end;
+$$;
+
+grant execute on function public.admin_create_workshop(jsonb) to authenticated;
 
 -- Métricas consolidadas de la plataforma (superadmin).
 create or replace function public.admin_global_metrics()

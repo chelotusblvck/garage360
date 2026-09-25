@@ -2,17 +2,21 @@ import "server-only";
 import { logActionError } from "@/lib/logger";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import type { PlanKey, SetupType } from "./plans";
 import { taxRateFromPercent } from "./shared";
 import { WorkshopError, type Workshop, type WorkshopRepository, type WorkshopSummary } from "./types";
 
 const WORKSHOP_COLUMNS =
-  "id, name, rut, address, city, phone, email, specialty, logo_url, hourly_rate, tax_rate, reception_policy, onboarding_completed, onboarded_at, created_at";
+  "id, name, rut, address, city, phone, email, specialty, logo_url, hourly_rate, tax_rate, reception_policy, plan, setup_type, setup_fee, onboarding_completed, onboarded_at, created_at";
 
 type Row = Record<string, unknown>;
 
 const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
 
 function fail(error: PostgrestError): never {
+  if (error.code === "23505" && error.message.includes("staff")) {
+    throw new WorkshopError("Ese email ya es staff de un taller", "admin_email");
+  }
   if (error.code === "23514") throw new WorkshopError("Algún dato no cumple el formato esperado");
   if (error.code === "42501") throw new WorkshopError("No tienes permisos para esta operación");
   logActionError("workshops · Supabase", error);
@@ -33,6 +37,9 @@ function toWorkshop(r: Row): Workshop {
     hourly_rate: Number(r.hourly_rate),
     tax_rate: Number(r.tax_rate),
     reception_policy: str(r.reception_policy),
+    plan: r.plan as PlanKey,
+    setup_type: r.setup_type as SetupType,
+    setup_fee: Number(r.setup_fee ?? 0),
     onboarding_completed: Boolean(r.onboarding_completed),
     onboarded_at: str(r.onboarded_at),
     created_at: String(r.created_at),
@@ -65,6 +72,18 @@ export const supabaseWorkshopRepository: WorkshopRepository = {
     return workshop;
   },
 
+  async create(input, setupFee) {
+    const supabase = await createClient();
+    // RPC atómica: taller + invitación del admin (o vínculo inmediato si ya tiene cuenta).
+    const { data, error } = await supabase.rpc("admin_create_workshop", {
+      p_workshop: { ...input, setup_fee: setupFee },
+    });
+    if (error) fail(error);
+    const workshop = await supabaseWorkshopRepository.get(String(data));
+    if (!workshop) throw new WorkshopError("No se pudo leer el taller creado");
+    return workshop;
+  },
+
   async list() {
     const supabase = await createClient();
     const { data, error } = await supabase.rpc("admin_list_workshops");
@@ -81,6 +100,9 @@ export const supabaseWorkshopRepository: WorkshopRepository = {
         logo_url: str(r.logo_url),
         onboarding_completed: Boolean(r.onboarding_completed),
         created_at: String(r.created_at),
+        plan: r.plan as PlanKey,
+        setup_type: r.setup_type as SetupType,
+        setup_fee: Number(r.setup_fee ?? 0),
         users: Number(r.users),
         staff: Number(r.staff),
       })

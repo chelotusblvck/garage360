@@ -9,8 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatDate, formatRut } from "@/lib/format";
+import { formatCurrency, formatDate, formatRut } from "@/lib/format";
 import { cn, normalizeText } from "@/lib/utils";
+import { PLANS, SETUPS } from "@/lib/workshops/plans";
 import type { WorkshopSummary } from "@/lib/workshops/types";
 
 function searchText(w: WorkshopSummary) {
@@ -57,6 +58,7 @@ export function WorkshopDirectory({ workshops }: { workshops: WorkshopSummary[] 
             <TableHeader>
               <TableRow>
                 <TableHead>Taller</TableHead>
+                <TableHead>Plan</TableHead>
                 <TableHead>RUT</TableHead>
                 <TableHead>Comuna</TableHead>
                 <TableHead>Estado</TableHead>
@@ -87,6 +89,14 @@ export function WorkshopDirectory({ workshops }: { workshops: WorkshopSummary[] 
                         </span>
                       </div>
                     </div>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    <span className="font-medium">{PLANS[w.plan].label}</span>
+                    {w.setup_type === "turnkey" ? (
+                      <span className="ml-1.5 rounded bg-foreground px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-background uppercase" title={`${SETUPS.turnkey.label} · ${formatCurrency(w.setup_fee)}`}>
+                        VIP
+                      </span>
+                    ) : null}
                   </TableCell>
                   <TableCell className="font-mono text-xs">{w.rut ? formatRut(w.rut) : "—"}</TableCell>
                   <TableCell>{w.city ?? "—"}</TableCell>

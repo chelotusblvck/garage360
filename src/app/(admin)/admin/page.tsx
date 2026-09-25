@@ -4,6 +4,7 @@ import { getGlobalMetrics, getWorkshops } from "@/app/actions/admin";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { formatCurrency, formatNumber } from "@/lib/format";
+import { NewWorkshopWizard } from "./_components/new-workshop-wizard";
 import { WorkshopDirectory } from "./_components/workshop-directory";
 
 export const metadata: Metadata = { title: "Consola" };
@@ -17,6 +18,7 @@ export default async function AdminPage() {
       <PageHeader
         title="Consola de superadministración"
         description="Talleres registrados en la plataforma, soporte e indicadores consolidados."
+        actions={<NewWorkshopWizard />}
       />
 
       <section aria-label="Métricas globales" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
