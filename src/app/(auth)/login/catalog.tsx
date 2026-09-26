@@ -26,7 +26,7 @@ export function Catalog({ onQuote }: { onQuote: (plan: PlanKey) => void }) {
         <h2 id="catalog-plans" className="text-sm font-medium">
           Planes de suscripción
         </h2>
-        <ul className="grid gap-3 @xl:grid-cols-3">
+        <ul className="grid grid-cols-1 gap-6 md:grid-cols-3">
           {PLAN_KEYS.map((key) => {
             const plan = PLANS[key];
             const featured = key === FEATURED;
@@ -73,7 +73,7 @@ export function Catalog({ onQuote }: { onQuote: (plan: PlanKey) => void }) {
         <h2 id="catalog-setup" className="text-sm font-medium">
           Implementación
         </h2>
-        <ul className="grid gap-3 @lg:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-6 md:grid-cols-2">
           {SETUP_TYPES.map((key) => {
             const setup = SETUPS[key];
             const Icon = key === "turnkey" ? Sparkles : Rocket;
@@ -95,7 +95,7 @@ export function Catalog({ onQuote }: { onQuote: (plan: PlanKey) => void }) {
         <h2 id="catalog-hardware" className="text-sm font-medium">
           Equipamiento <span className="font-normal text-muted-foreground">· opcional, pago único</span>
         </h2>
-        <ul className="grid gap-3 @xl:grid-cols-3">
+        <ul className="grid grid-cols-1 gap-6 md:grid-cols-3">
           {HARDWARE_KEYS.map((key) => {
             const item = HARDWARE[key];
             const Icon = HARDWARE_ICON[key];

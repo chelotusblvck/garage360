@@ -42,10 +42,16 @@ export function LoginTabs({ initialTab, login }: { initialTab: LoginTab; login: 
     tabRefs.current[next]?.focus();
   }
 
+  const wide = tab !== "ingresar";
+
   return (
-    // data-wide: el layout de (auth) ensancha la columna para el catálogo.
-    <div data-wide className="grid gap-6">
-      <div role="tablist" aria-label="Opciones de acceso" className="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1">
+    // data-wide: el layout de (auth) oculta el banner y usa el ancho completo.
+    <div data-wide={wide || undefined} className="grid gap-6">
+      <div
+        role="tablist"
+        aria-label="Opciones de acceso"
+        className={cn("mx-auto grid w-full grid-cols-3 gap-1 rounded-xl bg-muted p-1", wide ? "max-w-xl" : "max-w-sm")}
+      >
         {TABS.map((t, i) => {
           const active = t.value === tab;
           return (
@@ -81,7 +87,6 @@ export function LoginTabs({ initialTab, login }: { initialTab: LoginTab; login: 
           id={`login-panel-${t.value}`}
           aria-labelledby={`login-tab-${t.value}`}
           hidden={t.value !== tab}
-          className="@container"
         >
           {t.value === "ingresar" ? <div className="mx-auto w-full max-w-sm">{login}</div> : null}
           {t.value === "catalogo" ? (

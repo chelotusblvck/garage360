@@ -107,115 +107,128 @@ export function QuotationForm({ initialPlan }: { initialPlan: PlanKey }) {
         </p>
       </div>
 
-      <fieldset className="grid gap-2">
-        <legend className="mb-2 text-sm font-medium">Plan de suscripción</legend>
-        <div role="radiogroup" aria-label="Plan de suscripción" className="grid gap-2 @xl:grid-cols-3">
-          {PLAN_KEYS.map((key) => (
-            <OptionCard
-              key={key}
-              checked={plan === key}
-              onSelect={() => setValue("plan", key, { shouldValidate: true })}
-              title={PLANS[key].label}
-              price={`${formatCurrency(PLANS[key].monthly)}/mes`}
-              description={PLANS[key].description}
-            />
-          ))}
+      {/* Izquierda: selección y datos de contacto. Derecha: resumen y montos (fijo al hacer scroll). */}
+      <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
+        <div className="grid gap-6">
+          <fieldset className="grid gap-2">
+            <legend className="mb-2 text-sm font-medium">Plan de suscripción</legend>
+            <div role="radiogroup" aria-label="Plan de suscripción" className="grid gap-2 md:grid-cols-3">
+              {PLAN_KEYS.map((key) => (
+                <OptionCard
+                  key={key}
+                  checked={plan === key}
+                  onSelect={() => setValue("plan", key, { shouldValidate: true })}
+                  title={PLANS[key].label}
+                  price={`${formatCurrency(PLANS[key].monthly)}/mes`}
+                  description={PLANS[key].description}
+                />
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="grid gap-2">
+            <legend className="mb-2 text-sm font-medium">Modalidad de setup</legend>
+            <div role="radiogroup" aria-label="Modalidad de setup" className="grid gap-2 md:grid-cols-2">
+              {SETUP_TYPES.map((key) => (
+                <OptionCard
+                  key={key}
+                  checked={setup === key}
+                  onSelect={() => setValue("setup_type", key, { shouldValidate: true })}
+                  title={SETUPS[key].label}
+                  price={SETUPS[key].fee ? `${formatCurrency(SETUPS[key].fee)} pago único` : "Sin costo"}
+                  description={SETUPS[key].description}
+                  icon={key === "turnkey" ? Sparkles : Rocket}
+                />
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="grid gap-2">
+            <legend className="mb-2 text-sm font-medium">
+              Equipamiento <span className="font-normal text-muted-foreground">· opcional</span>
+            </legend>
+            <ul className="grid gap-2">
+              {HARDWARE_KEYS.map((key) => {
+                const item = HARDWARE[key];
+                const Icon = HARDWARE_ICON[key];
+                const qty = hardware[key] ?? 0;
+                return (
+                  <li
+                    key={key}
+                    className={cn("flex items-center gap-3 rounded-xl border p-3", qty > 0 && "border-foreground bg-muted/40")}
+                  >
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+                      <Icon className="size-5" aria-hidden />
+                    </span>
+                    <span className="grid min-w-0 flex-1 leading-tight">
+                      <span className="truncate text-sm font-medium">{item.label}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">{formatCurrency(item.price)} c/u</span>
+                    </span>
+                    {qty > 0 ? (
+                      <QuantityStepper value={qty} max={MAX_HARDWARE_UNITS} label={item.label} size="sm" onChange={(v) => setQty(key, v)} />
+                    ) : (
+                      <Button type="button" variant="outline" size="sm" onClick={() => setQty(key, 1)}>
+                        <Plus data-icon="inline-start" />
+                        Agregar
+                      </Button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            {errors.hardware ? (
+              <p role="alert" className="text-xs text-destructive">
+                Revisa las cantidades de equipamiento (máximo {MAX_HARDWARE_UNITS} por equipo).
+              </p>
+            ) : null}
+          </fieldset>
+
+          <fieldset className="grid gap-4 md:grid-cols-2">
+            <legend className="mb-2 text-sm font-medium">Datos del taller y contacto</legend>
+            <Field label="Nombre del taller" htmlFor={id("workshop_name")} error={errors.workshop_name?.message} className="md:col-span-2">
+              <Input {...fieldAria(id("workshop_name"), errors.workshop_name?.message)} {...register("workshop_name")} autoComplete="organization" />
+            </Field>
+            <Field label="Nombre y apellido" htmlFor={id("contact_name")} error={errors.contact_name?.message}>
+              <Input {...fieldAria(id("contact_name"), errors.contact_name?.message)} {...register("contact_name")} autoComplete="name" />
+            </Field>
+            <Field label="Comuna" htmlFor={id("comuna")} error={errors.comuna?.message} hint="Opcional">
+              <Input {...fieldAria(id("comuna"), errors.comuna?.message, true)} {...register("comuna")} autoComplete="address-level2" />
+            </Field>
+            <Field label="Email" htmlFor={id("email")} error={errors.email?.message}>
+              <Input {...fieldAria(id("email"), errors.email?.message)} {...register("email")} type="email" autoComplete="email" />
+            </Field>
+            <Field label="Teléfono / WhatsApp" htmlFor={id("phone")} error={errors.phone?.message}>
+              <Input
+                {...fieldAria(id("phone"), errors.phone?.message)}
+                {...register("phone")}
+                type="tel"
+                autoComplete="tel"
+                placeholder="+56 9 1234 5678"
+              />
+            </Field>
+            {/* Honeypot: oculto para personas y lectores de pantalla. */}
+            <div aria-hidden className="absolute -left-[9999px] size-px overflow-hidden">
+              <label htmlFor={id("website")}>Sitio web</label>
+              <input id={id("website")} {...register("website")} tabIndex={-1} autoComplete="off" />
+            </div>
+          </fieldset>
         </div>
-      </fieldset>
 
-      <fieldset className="grid gap-2">
-        <legend className="mb-2 text-sm font-medium">Modalidad de setup</legend>
-        <div role="radiogroup" aria-label="Modalidad de setup" className="grid gap-2 @lg:grid-cols-2">
-          {SETUP_TYPES.map((key) => (
-            <OptionCard
-              key={key}
-              checked={setup === key}
-              onSelect={() => setValue("setup_type", key, { shouldValidate: true })}
-              title={SETUPS[key].label}
-              price={SETUPS[key].fee ? `${formatCurrency(SETUPS[key].fee)} pago único` : "Sin costo"}
-              description={SETUPS[key].description}
-              icon={key === "turnkey" ? Sparkles : Rocket}
-            />
-          ))}
-        </div>
-      </fieldset>
-
-      <fieldset className="grid gap-2">
-        <legend className="mb-2 text-sm font-medium">
-          Equipamiento <span className="font-normal text-muted-foreground">· opcional</span>
-        </legend>
-        <ul className="grid gap-2">
-          {HARDWARE_KEYS.map((key) => {
-            const item = HARDWARE[key];
-            const Icon = HARDWARE_ICON[key];
-            const qty = hardware[key] ?? 0;
-            return (
-              <li
-                key={key}
-                className={cn("flex items-center gap-3 rounded-xl border p-3", qty > 0 && "border-foreground bg-muted/40")}
-              >
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-                  <Icon className="size-5" aria-hidden />
-                </span>
-                <span className="grid min-w-0 flex-1 leading-tight">
-                  <span className="truncate text-sm font-medium">{item.label}</span>
-                  <span className="text-xs text-muted-foreground tabular-nums">{formatCurrency(item.price)} c/u</span>
-                </span>
-                {qty > 0 ? (
-                  <QuantityStepper value={qty} max={MAX_HARDWARE_UNITS} label={item.label} size="sm" onChange={(v) => setQty(key, v)} />
-                ) : (
-                  <Button type="button" variant="outline" size="sm" onClick={() => setQty(key, 1)}>
-                    <Plus data-icon="inline-start" />
-                    Agregar
-                  </Button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-        {errors.hardware ? (
-          <p role="alert" className="text-xs text-destructive">
-            Revisa las cantidades de equipamiento (máximo {MAX_HARDWARE_UNITS} por equipo).
-          </p>
-        ) : null}
-      </fieldset>
-
-      <QuoteBreakdown plan={plan} setup={setup} hardware={lines} />
-
-      <fieldset className="grid gap-4 @lg:grid-cols-2">
-        <legend className="mb-2 text-sm font-medium">Datos del taller y contacto</legend>
-        <Field label="Nombre del taller" htmlFor={id("workshop_name")} error={errors.workshop_name?.message} className="@lg:col-span-2">
-          <Input {...fieldAria(id("workshop_name"), errors.workshop_name?.message)} {...register("workshop_name")} autoComplete="organization" />
-        </Field>
-        <Field label="Nombre y apellido" htmlFor={id("contact_name")} error={errors.contact_name?.message}>
-          <Input {...fieldAria(id("contact_name"), errors.contact_name?.message)} {...register("contact_name")} autoComplete="name" />
-        </Field>
-        <Field label="Comuna" htmlFor={id("comuna")} error={errors.comuna?.message} hint="Opcional">
-          <Input {...fieldAria(id("comuna"), errors.comuna?.message, true)} {...register("comuna")} autoComplete="address-level2" />
-        </Field>
-        <Field label="Email" htmlFor={id("email")} error={errors.email?.message}>
-          <Input {...fieldAria(id("email"), errors.email?.message)} {...register("email")} type="email" autoComplete="email" />
-        </Field>
-        <Field label="Teléfono / WhatsApp" htmlFor={id("phone")} error={errors.phone?.message}>
-          <Input
-            {...fieldAria(id("phone"), errors.phone?.message)}
-            {...register("phone")}
-            type="tel"
-            autoComplete="tel"
-            placeholder="+56 9 1234 5678"
-          />
-        </Field>
-        {/* Honeypot: oculto para personas y lectores de pantalla. */}
-        <div aria-hidden className="absolute -left-[9999px] size-px overflow-hidden">
-          <label htmlFor={id("website")}>Sitio web</label>
-          <input id={id("website")} {...register("website")} tabIndex={-1} autoComplete="off" />
-        </div>
-      </fieldset>
-
-      <Button type="submit" size="lg" disabled={isSubmitting} className="h-10">
-        {isSubmitting ? <LoaderCircle data-icon="inline-start" className="animate-spin" /> : <Send data-icon="inline-start" />}
-        {isSubmitting ? "Enviando…" : `Enviar cotización · ${formatCurrency(quoteTotals(plan, setup, lines).initial.total)} inicial`}
-      </Button>
+        <aside aria-label="Resumen de la cotización" className="grid gap-4 lg:sticky lg:top-6">
+          <div className="grid gap-1">
+            <h2 className="text-sm font-medium">Resumen</h2>
+            <p className="text-xs text-muted-foreground">
+              Plan {PLANS[plan].label} · {SETUPS[setup].label}
+              {lines.length ? ` · ${lines.reduce((n, l) => n + l.qty, 0)} equipo(s)` : ""}
+            </p>
+          </div>
+          <QuoteBreakdown plan={plan} setup={setup} hardware={lines} />
+          <Button type="submit" size="lg" disabled={isSubmitting} className="h-10">
+            {isSubmitting ? <LoaderCircle data-icon="inline-start" className="animate-spin" /> : <Send data-icon="inline-start" />}
+            {isSubmitting ? "Enviando…" : `Enviar cotización · ${formatCurrency(quoteTotals(plan, setup, lines).initial.total)} inicial`}
+          </Button>
+        </aside>
+      </div>
     </form>
   );
 }
@@ -242,7 +255,7 @@ function QuotationSent({ submitted, onNew }: { submitted: Submitted; onNew: () =
   }
 
   return (
-    <div className="grid gap-6">
+    <div className="mx-auto grid w-full max-w-2xl gap-6">
       <div className="grid gap-2">
         <CircleCheck className="size-8 text-status-good" aria-hidden />
         <h1 className="text-2xl font-semibold tracking-tight">¡Cotización enviada!</h1>
@@ -254,7 +267,7 @@ function QuotationSent({ submitted, onNew }: { submitted: Submitted; onNew: () =
 
       <QuoteBreakdown plan={values.plan} setup={values.setup_type} hardware={hardware} />
 
-      <div className="grid gap-2 @lg:grid-cols-2">
+      <div className="grid gap-2 sm:grid-cols-2">
         <a
           href={`https://wa.me/${whatsappNumber(PLATFORM.salesPhone)}?text=${encodeURIComponent(text)}`}
           target="_blank"
