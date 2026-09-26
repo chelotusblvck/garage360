@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AppSidebar } from "@/components/dashboard/app-sidebar";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { SupportBanner } from "@/components/dashboard/support-banner";
+import { DashboardSplashLoader } from "@/components/ui/dashboard-splash-loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { getCurrentWorkshop, requireStaff } from "@/lib/auth";
 import { getInventoryRepository } from "@/lib/inventory/repository";
@@ -23,6 +24,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
+      {/* En el layout (no en la página): no se repite al navegar entre módulos. */}
+      <DashboardSplashLoader />
       <AppSidebar
         profile={profile}
         workshop={{ name: branding.name, logoUrl: branding.logoUrl }}
