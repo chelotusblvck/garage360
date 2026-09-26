@@ -1,5 +1,5 @@
 import type { NewWorkshopInput, OnboardingInput, StaffRole } from "@/lib/validations/schemas";
-import type { PlanKey, SetupType } from "./plans";
+import type { HardwareLine, PlanKey, SetupType } from "./plans";
 
 /** Taller (tenant): datos comerciales, tarifas y estado del onboarding. */
 export type Workshop = {
@@ -26,6 +26,8 @@ export type Workshop = {
   setup_type: SetupType;
   /** Fee de setup cobrado al alta (CLP, pago único). */
   setup_fee: number;
+  /** Equipamiento contratado al alta. */
+  hardware: HardwareLine[];
   /** Próximo vencimiento de la suscripción (dateKey); null = nunca pagó. */
   next_due_at: string | null;
   /** Suspensión manual por mora: bloquea el panel (salvo modo soporte). */

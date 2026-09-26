@@ -36,7 +36,7 @@ import type { WorkshopAccount } from "@/lib/billing/types";
 import { daysBetween, todayKey } from "@/lib/datetime";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { PLAN_KEYS, PLANS, SETUP_TYPES, SETUPS, type PlanKey, type SetupType } from "@/lib/workshops/plans";
+import { HARDWARE, PLAN_KEYS, PLANS, SETUP_TYPES, SETUPS, type PlanKey, type SetupType } from "@/lib/workshops/plans";
 import { ActivationLink } from "./activation-link";
 
 /** Botón «Facturación» + ficha de cobro del taller (solo en /admin). */
@@ -145,6 +145,10 @@ function BillingPanel({ workshopId, workshopName }: { workshopId: string; worksh
             <p className="text-sm text-muted-foreground">
               {SETUPS[w.setup_type].label}
               {w.setup_type === "turnkey" ? ` · setup ${formatCurrency(w.setup_fee)}` : ""}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Equipamiento al alta:{" "}
+              {w.hardware.length ? w.hardware.map((h) => `${h.qty} × ${HARDWARE[h.sku].label}`).join(", ") : "sin equipos"}
             </p>
             {panel === "plan" ? (
               <PlanForm

@@ -2,7 +2,7 @@ import "server-only";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { logActionError } from "@/lib/logger";
 import { createClient } from "@/lib/supabase/server";
-import { HARDWARE_KEYS, type HardwareLine, type PlanKey, type SetupType } from "@/lib/workshops/plans";
+import { parseHardwareLines, type PlanKey, type SetupType } from "@/lib/workshops/plans";
 import { QuotationError, type Quotation, type QuotationRepository, type QuotationStatus } from "./types";
 
 const COLUMNS =
@@ -21,14 +21,6 @@ function fail(error: PostgrestError): never {
   throw new QuotationError("No se pudo completar la operación. Intenta de nuevo.");
 }
 
-/** jsonb → líneas válidas (descarta SKUs que ya no existen en el catálogo). */
-function toHardware(value: unknown): HardwareLine[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((h: Row) => ({ sku: String(h?.sku) as HardwareLine["sku"], qty: Number(h?.qty) }))
-    .filter((h) => (HARDWARE_KEYS as readonly string[]).includes(h.sku) && h.qty > 0);
-}
-
 function toQuotation(r: Row): Quotation {
   return {
     id: String(r.id),
@@ -39,7 +31,7 @@ function toQuotation(r: Row): Quotation {
     comuna: str(r.comuna),
     plan_type: r.plan_type as PlanKey,
     setup_type: r.setup_type as SetupType,
-    selected_hardware: toHardware(r.selected_hardware),
+    selected_hardware: parseHardwareLines(r.selected_hardware),
     estimated_total_clp: Number(r.estimated_total_clp),
     monthly_clp: Number(r.monthly_clp),
     status: r.status as QuotationStatus,

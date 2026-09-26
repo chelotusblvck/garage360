@@ -1,14 +1,9 @@
-import { ArrowRight, Check, Printer, Rocket, Sparkles, Tablet, WalletCards } from "lucide-react";
+import { ArrowRight, Check, Rocket, Sparkles } from "lucide-react";
+import { HARDWARE_ICON } from "@/components/quotations/hardware-picker";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { HARDWARE, HARDWARE_KEYS, PLAN_KEYS, PLANS, SETUP_TYPES, SETUPS, type HardwareKey, type PlanKey } from "@/lib/workshops/plans";
-
-export const HARDWARE_ICON: Record<HardwareKey, typeof Tablet> = {
-  tablet_rugged_10: Tablet,
-  printer_thermal_80: Printer,
-  pos_smart_c2c: WalletCards,
-};
+import { HARDWARE, HARDWARE_KEYS, PLAN_KEYS, PLANS, SETUP_TYPES, SETUPS, type PlanKey } from "@/lib/workshops/plans";
 
 /** Plan destacado en el catálogo. */
 const FEATURED: PlanKey = "pro";

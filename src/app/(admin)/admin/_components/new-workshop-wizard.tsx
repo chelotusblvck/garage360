@@ -8,17 +8,29 @@ import { toast } from "sonner";
 import { ArrowLeft, ArrowRight, Check, CircleCheck, LoaderCircle, Plus, Rocket, Sparkles } from "lucide-react";
 import { createWorkshop } from "@/app/actions/admin";
 import { Field, fieldAria } from "@/components/forms/field";
+import { HardwarePicker } from "@/components/quotations/hardware-picker";
+import { QuoteBreakdown } from "@/components/quotations/quote-breakdown";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { newWorkshopSchema, type NewWorkshopValues } from "@/lib/validations/schemas";
-import { PLAN_KEYS, PLANS, SETUP_TYPES, SETUPS, initialCharge } from "@/lib/workshops/plans";
+import {
+  EMPTY_HARDWARE,
+  HARDWARE,
+  MAX_HARDWARE_UNITS,
+  PLAN_KEYS,
+  PLANS,
+  SETUP_TYPES,
+  SETUPS,
+  hardwareLines,
+  quoteTotals,
+} from "@/lib/workshops/plans";
 import { ActivationLink } from "./activation-link";
 
 const STEPS = [
-  { title: "Plan e implementación", fields: ["plan", "setup_type"] },
+  { title: "Plan, setup y equipamiento", fields: ["plan", "setup_type", "hardware"] },
   { title: "Taller y administrador", fields: ["name", "city", "phone", "admin_name", "admin_email"] },
   { title: "Confirmar", fields: [] },
 ] as const satisfies readonly { title: string; fields: readonly FieldPath<NewWorkshopValues>[] }[];
@@ -26,6 +38,7 @@ const STEPS = [
 const DEFAULTS: NewWorkshopValues = {
   plan: "pro",
   setup_type: "diy",
+  hardware: EMPTY_HARDWARE,
   name: "",
   city: "",
   phone: "",
@@ -79,11 +92,13 @@ function WizardBody({ isDemo, onDone }: { isDemo: boolean; onDone: () => void })
     defaultValues: DEFAULTS,
     mode: "onTouched",
   });
-  const [plan, setup, name, city, adminName, adminEmail] = useWatch({
+  const [plan, setup, hardware, name, city, adminName, adminEmail] = useWatch({
     control,
-    name: ["plan", "setup_type", "name", "city", "admin_name", "admin_email"],
+    name: ["plan", "setup_type", "hardware", "name", "city", "admin_name", "admin_email"],
   });
-  const charge = initialCharge(plan, setup);
+  // Mismo cálculo que el catálogo y el cotizador de /login.
+  const lines = hardwareLines(hardware);
+  const totals = quoteTotals(plan, setup, lines);
 
   async function next() {
     if (await trigger(STEPS[step].fields)) setStep((s) => s + 1);
@@ -190,7 +205,19 @@ function WizardBody({ isDemo, onDone }: { isDemo: boolean; onDone: () => void })
               </div>
             </fieldset>
 
-            <ChargeBreakdown plan={plan} setup={setup} />
+            <fieldset className="grid gap-2">
+              <legend className="mb-2 text-sm font-medium">
+                Equipamiento <span className="font-normal text-muted-foreground">· opcional, pago único</span>
+              </legend>
+              <HardwarePicker value={hardware} onChange={(sku, qty) => setValue(`hardware.${sku}`, qty, { shouldValidate: true })} />
+              {errors.hardware ? (
+                <p role="alert" className="text-xs text-destructive">
+                  Revisa las cantidades de equipamiento (máximo {MAX_HARDWARE_UNITS} por equipo).
+                </p>
+              ) : null}
+            </fieldset>
+
+            <QuoteBreakdown plan={plan} setup={setup} hardware={lines} />
           </div>
         ) : null}
 
@@ -230,8 +257,12 @@ function WizardBody({ isDemo, onDone }: { isDemo: boolean; onDone: () => void })
               <Summary label="Administrador" value={`${adminName} · ${adminEmail}`} />
               <Summary label="Plan" value={`${PLANS[plan].label} · ${formatCurrency(PLANS[plan].monthly)}/mes`} />
               <Summary label="Implementación" value={SETUPS[setup].label} />
+              <Summary
+                label="Equipamiento"
+                value={lines.length ? lines.map((l) => `${l.qty} × ${HARDWARE[l.sku].label}`).join(", ") : "Sin equipos"}
+              />
             </dl>
-            <ChargeBreakdown plan={plan} setup={setup} />
+            <QuoteBreakdown plan={plan} setup={setup} hardware={lines} />
             <p className="text-xs text-muted-foreground">
               El taller queda con el onboarding pendiente: su administrador completa datos, equipo y tarifas al primer ingreso.
               {setup === "turnkey" ? " Con Llave en Mano, el equipo de implementación agenda la carga de datos y la capacitación." : ""}
@@ -251,7 +282,8 @@ function WizardBody({ isDemo, onDone }: { isDemo: boolean; onDone: () => void })
         )}
         <div className="flex items-center gap-3">
           <span className="hidden text-sm text-muted-foreground tabular-nums sm:inline">
-            Cobro inicial <span className="font-semibold text-foreground">{formatCurrency(charge.total)}</span>
+            Pago inicial <span className="font-semibold text-foreground">{formatCurrency(totals.initial.total)}</span> ·{" "}
+            {formatCurrency(totals.monthly.total)}/mes
           </span>
           {/* Keys distintas: evita que React reutilice el botón y envíe el formulario al cambiar de tipo. */}
           {step < STEPS.length - 1 ? (
@@ -262,7 +294,7 @@ function WizardBody({ isDemo, onDone }: { isDemo: boolean; onDone: () => void })
           ) : (
             <Button key="submit" type="submit" disabled={isSubmitting}>
               {isSubmitting ? <LoaderCircle data-icon="inline-start" className="animate-spin" /> : <Check data-icon="inline-start" />}
-              Crear taller
+              Crear y generar enlace
             </Button>
           )}
         </div>
@@ -319,29 +351,6 @@ function OptionCard({
         </ul>
       ) : null}
     </button>
-  );
-}
-
-function ChargeBreakdown({ plan, setup }: { plan: NewWorkshopValues["plan"]; setup: NewWorkshopValues["setup_type"] }) {
-  const { monthly, setupFee, total } = initialCharge(plan, setup);
-  return (
-    <section aria-label="Desglose del cobro inicial" className="grid gap-1.5 rounded-xl bg-muted/60 p-4 text-sm">
-      <div className="flex justify-between gap-4">
-        <span>Suscripción mensual · {PLANS[plan].label}</span>
-        <span className="tabular-nums">{formatCurrency(monthly)}</span>
-      </div>
-      <div className="flex justify-between gap-4">
-        <span>Setup · {SETUPS[setup].label}</span>
-        <span className="tabular-nums">{setupFee ? formatCurrency(setupFee) : "Sin costo"}</span>
-      </div>
-      <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-foreground/10 pt-2">
-        <span className="font-medium">Total inicial a cobrar</span>
-        <span className="text-lg font-semibold tabular-nums">{formatCurrency(total)}</span>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        IVA incluido. Luego {formatCurrency(monthly)} al mes{setupFee ? "; el setup se cobra una sola vez" : ""}.
-      </p>
-    </section>
   );
 }
 

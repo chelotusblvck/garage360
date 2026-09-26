@@ -7,7 +7,7 @@ import { addDays, todayKey } from "@/lib/datetime";
 import { demoQuotationStore } from "@/lib/quotations/demo-repository";
 import { rutCheckDigit } from "@/lib/rut";
 import { round2 } from "@/lib/sales/shared";
-import { PLANS, SETUPS } from "./plans";
+import { PLANS, SETUPS, hardwareLines } from "./plans";
 import { DEFAULT_RECEPTION_POLICY, PRIMARY_WORKSHOP_ID, taxRateFromPercent } from "./shared";
 import { WorkshopError, type Workshop, type WorkshopRepository, type WorkshopStaffMember } from "./types";
 
@@ -44,6 +44,7 @@ function workshop(partial: Partial<Workshop> & Pick<Workshop, "id" | "name" | "c
     plan: "starter",
     setup_type: "diy",
     setup_fee: 0,
+    hardware: [],
     next_due_at: null,
     suspended_at: null,
     suspension_reason: null,
@@ -221,6 +222,7 @@ export const demoWorkshopRepository: WorkshopRepository = {
       plan: input.plan,
       setup_type: input.setup_type,
       setup_fee: setupFee,
+      hardware: hardwareLines(input.hardware),
       created_at: now,
     });
     s.workshops.push(created);

@@ -48,13 +48,6 @@ export const SETUPS: Record<SetupType, { label: string; short: string; fee: numb
   },
 };
 
-/** Cobro inicial: primera mensualidad + fee de setup (pago único) si corresponde. */
-export function initialCharge(plan: PlanKey, setup: SetupType) {
-  const monthly = PLANS[plan].monthly;
-  const setupFee = SETUPS[setup].fee;
-  return { monthly, setupFee, total: monthly + setupFee };
-}
-
 // ---------------------------------------------------------------------------
 // Equipamiento (catálogo público y cotizaciones de /login)
 // ---------------------------------------------------------------------------
@@ -88,6 +81,29 @@ export const HARDWARE: Record<HardwareKey, { label: string; price: number; descr
 export const MAX_HARDWARE_UNITS = 10;
 
 export type HardwareLine = { sku: HardwareKey; qty: number };
+
+/** Unidades por equipo en formularios (0 = no lo quiere). */
+export type HardwareSelection = Record<HardwareKey, number>;
+
+export const EMPTY_HARDWARE = Object.fromEntries(HARDWARE_KEYS.map((k) => [k, 0])) as HardwareSelection;
+
+/** Selección del formulario → líneas guardadas (solo equipos con unidades). */
+export const hardwareLines = (selection: Partial<HardwareSelection>): HardwareLine[] =>
+  HARDWARE_KEYS.map((sku) => ({ sku, qty: selection[sku] ?? 0 })).filter((h) => h.qty > 0);
+
+/** jsonb de la base → líneas válidas (descarta SKUs que ya no están en el catálogo). */
+export function parseHardwareLines(value: unknown): HardwareLine[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((h: { sku?: unknown; qty?: unknown } | null) => ({ sku: String(h?.sku) as HardwareKey, qty: Number(h?.qty) }))
+    .filter((h) => (HARDWARE_KEYS as readonly string[]).includes(h.sku) && Number.isInteger(h.qty) && h.qty > 0);
+}
+
+/** Líneas guardadas → selección del formulario. */
+export const hardwareSelection = (lines: HardwareLine[]): HardwareSelection =>
+  Object.fromEntries(
+    HARDWARE_KEYS.map((k) => [k, lines.filter((l) => l.sku === k).reduce((n, l) => n + l.qty, 0)])
+  ) as HardwareSelection;
 
 /** Monto con IVA incluido → neto + IVA. */
 export function splitTax(total: number) {

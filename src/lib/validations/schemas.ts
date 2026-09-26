@@ -744,9 +744,16 @@ export const workshopSettingsSchema = z.object({
 });
 
 /** Alta de un taller desde la consola de superadmin (el resto lo completa su admin en el onboarding). */
+/** Unidades por equipo del catálogo (0 = no lo quiere). Alta manual y cotizaciones. */
+const hardwareSelectionSchema = z.record(
+  z.enum(HARDWARE_KEYS),
+  z.number({ error: "Cantidad inválida" }).int("Cantidad inválida").min(0).max(MAX_HARDWARE_UNITS, `Máximo ${MAX_HARDWARE_UNITS} unidades`)
+);
+
 export const newWorkshopSchema = z.object({
   plan: z.enum(PLAN_KEYS, { error: "Elige un plan" }),
   setup_type: z.enum(SETUP_TYPES, { error: "Elige la modalidad de implementación" }),
+  hardware: hardwareSelectionSchema,
   name: z.string().trim().min(2, "Ingresa el nombre comercial").max(120, "Máximo 120 caracteres"),
   city: optionalText(60),
   phone: z
@@ -804,11 +811,7 @@ export const quotationSchema = z.object({
   comuna: optionalText(60),
   plan: z.enum(PLAN_KEYS, { error: "Elige un plan" }),
   setup_type: z.enum(SETUP_TYPES, { error: "Elige la modalidad de implementación" }),
-  /** Unidades por equipo (0 = no lo quiere). */
-  hardware: z.record(
-    z.enum(HARDWARE_KEYS),
-    z.number({ error: "Cantidad inválida" }).int("Cantidad inválida").min(0).max(MAX_HARDWARE_UNITS, `Máximo ${MAX_HARDWARE_UNITS} unidades`)
-  ),
+  hardware: hardwareSelectionSchema,
   /** Honeypot anti-bots: el campo está oculto, una persona lo deja vacío. */
   website: z.string().max(200).optional(),
 });

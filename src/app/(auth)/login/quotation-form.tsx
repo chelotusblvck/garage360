@@ -4,10 +4,10 @@ import { useId, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
-import { Check, CircleCheck, Download, LoaderCircle, MessageCircle, Plus, Rocket, Send, Sparkles } from "lucide-react";
+import { Check, CircleCheck, Download, LoaderCircle, MessageCircle, Rocket, Send, Sparkles } from "lucide-react";
 import { submitQuotation } from "@/app/actions/quotations";
 import { Field, fieldAria } from "@/components/forms/field";
-import { QuantityStepper } from "@/components/quantity-stepper";
+import { HardwarePicker } from "@/components/quotations/hardware-picker";
 import { QuoteBreakdown } from "@/components/quotations/quote-breakdown";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,24 +17,19 @@ import { quoteSummaryText, quotationRef, whatsappNumber } from "@/lib/quotations
 import { cn } from "@/lib/utils";
 import { quotationSchema, type QuotationValues } from "@/lib/validations/schemas";
 import {
-  HARDWARE,
-  HARDWARE_KEYS,
+  EMPTY_HARDWARE,
   MAX_HARDWARE_UNITS,
   PLAN_KEYS,
   PLANS,
   SETUP_TYPES,
   SETUPS,
+  hardwareLines,
   quoteTotals,
-  type HardwareKey,
   type HardwareLine,
   type PlanKey,
 } from "@/lib/workshops/plans";
-import { HARDWARE_ICON } from "./catalog";
 
 type Submitted = { id: string; values: QuotationValues; hardware: HardwareLine[] };
-
-const toLines = (hardware: Record<HardwareKey, number>): HardwareLine[] =>
-  HARDWARE_KEYS.map((sku) => ({ sku, qty: hardware[sku] ?? 0 })).filter((h) => h.qty > 0);
 
 /** Pestaña «Solicitar cotización»: plan, setup y equipamiento con total en vivo. */
 export function QuotationForm({ initialPlan }: { initialPlan: PlanKey }) {
@@ -61,18 +56,13 @@ export function QuotationForm({ initialPlan }: { initialPlan: PlanKey }) {
       comuna: "",
       plan: initialPlan,
       setup_type: "diy",
-      hardware: { tablet_rugged_10: 0, printer_thermal_80: 0, pos_smart_c2c: 0 },
+      hardware: EMPTY_HARDWARE,
       website: "",
     },
     mode: "onTouched",
   });
   const [plan, setup, hardware] = useWatch({ control, name: ["plan", "setup_type", "hardware"] });
-  const lines = toLines(hardware);
-
-  function setQty(sku: HardwareKey, qty: number) {
-    if (!Number.isFinite(qty)) return;
-    setValue(`hardware.${sku}`, Math.min(MAX_HARDWARE_UNITS, Math.max(0, Math.trunc(qty))), { shouldDirty: true });
-  }
+  const lines = hardwareLines(hardware);
 
   const onSubmit = handleSubmit(async (values) => {
     const result = await submitQuotation(values);
@@ -83,7 +73,7 @@ export function QuotationForm({ initialPlan }: { initialPlan: PlanKey }) {
       toast.error(result.error);
       return;
     }
-    setSubmitted({ id: result.data.id, values, hardware: toLines(values.hardware) });
+    setSubmitted({ id: result.data.id, values, hardware: hardwareLines(values.hardware) });
   });
 
   if (submitted) {
@@ -147,35 +137,7 @@ export function QuotationForm({ initialPlan }: { initialPlan: PlanKey }) {
             <legend className="mb-2 text-sm font-medium">
               Equipamiento <span className="font-normal text-muted-foreground">· opcional</span>
             </legend>
-            <ul className="grid gap-2">
-              {HARDWARE_KEYS.map((key) => {
-                const item = HARDWARE[key];
-                const Icon = HARDWARE_ICON[key];
-                const qty = hardware[key] ?? 0;
-                return (
-                  <li
-                    key={key}
-                    className={cn("flex items-center gap-3 rounded-xl border p-3", qty > 0 && "border-foreground bg-muted/40")}
-                  >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-                      <Icon className="size-5" aria-hidden />
-                    </span>
-                    <span className="grid min-w-0 flex-1 leading-tight">
-                      <span className="truncate text-sm font-medium">{item.label}</span>
-                      <span className="text-xs text-muted-foreground tabular-nums">{formatCurrency(item.price)} c/u</span>
-                    </span>
-                    {qty > 0 ? (
-                      <QuantityStepper value={qty} max={MAX_HARDWARE_UNITS} label={item.label} size="sm" onChange={(v) => setQty(key, v)} />
-                    ) : (
-                      <Button type="button" variant="outline" size="sm" onClick={() => setQty(key, 1)}>
-                        <Plus data-icon="inline-start" />
-                        Agregar
-                      </Button>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+            <HardwarePicker value={hardware} onChange={(sku, qty) => setValue(`hardware.${sku}`, qty, { shouldDirty: true })} />
             {errors.hardware ? (
               <p role="alert" className="text-xs text-destructive">
                 Revisa las cantidades de equipamiento (máximo {MAX_HARDWARE_UNITS} por equipo).

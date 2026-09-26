@@ -2448,6 +2448,8 @@ create table if not exists public.workshops (
 alter table public.workshops add column if not exists plan text not null default 'starter';
 alter table public.workshops add column if not exists setup_type text not null default 'diy';
 alter table public.workshops add column if not exists setup_fee numeric(12, 0) not null default 0;
+-- Equipamiento contratado al alta: [{ "sku": "tablet_rugged_10", "qty": 2 }, …] (mismo formato que quotations).
+alter table public.workshops add column if not exists hardware jsonb not null default '[]'::jsonb;
 -- Cobro de la suscripción (sección 15): vencimiento y suspensión manual por mora.
 alter table public.workshops add column if not exists next_due_at date;
 alter table public.workshops add column if not exists suspended_at timestamptz;
@@ -2458,14 +2460,19 @@ do $$ begin
     add constraint workshops_plan_valid check (plan in ('starter', 'pro', 'enterprise'));
 exception when duplicate_object then null; end $$;
 
-do $$ begin
+do $ begin
+  alter table public.workshops
+    add constraint workshops_hardware_array check (jsonb_typeof(hardware) = 'array' and jsonb_array_length(hardware) <= 10);
+exception when duplicate_object then null; end $;
+
+do $ begin
   alter table public.workshops
     add constraint workshops_setup_valid check (
       setup_type in ('diy', 'turnkey') and setup_fee >= 0 and (setup_type = 'turnkey' or setup_fee = 0)
     );
 exception when duplicate_object then null; end $$;
 
--- Plan, setup, vencimiento y suspensión son datos de facturación: el admin del
+-- Plan, setup, equipamiento, vencimiento y suspensión son datos de facturación: el admin del
 -- taller puede editar su ficha (política "workshops: admin updates own") pero
 -- no estos campos.
 create or replace function public.protect_workshop_billing()
@@ -2475,8 +2482,8 @@ security definer
 set search_path = public
 as $$
 begin
-  if (new.plan, new.setup_type, new.setup_fee, new.next_due_at, new.suspended_at, new.suspension_reason)
-     is distinct from (old.plan, old.setup_type, old.setup_fee, old.next_due_at, old.suspended_at, old.suspension_reason)
+  if (new.plan, new.setup_type, new.setup_fee, new.hardware, new.next_due_at, new.suspended_at, new.suspension_reason)
+     is distinct from (old.plan, old.setup_type, old.setup_fee, old.hardware, old.next_due_at, old.suspended_at, old.suspension_reason)
      and auth.uid() is not null
      and not public.is_superadmin() then
     raise exception 'Los datos de facturación solo los cambia un superadministrador'
@@ -2674,7 +2681,7 @@ begin
     raise exception 'Ese email ya es staff de un taller' using errcode = '23505';
   end if;
 
-  insert into public.workshops (name, city, phone, email, plan, setup_type, setup_fee)
+  insert into public.workshops (name, city, phone, email, plan, setup_type, setup_fee, hardware)
   values (
     trim(p_workshop ->> 'name'),
     nullif(trim(p_workshop ->> 'city'), ''),
@@ -2682,7 +2689,8 @@ begin
     v_email,
     p_workshop ->> 'plan',
     p_workshop ->> 'setup_type',
-    coalesce((p_workshop ->> 'setup_fee')::numeric, 0)
+    coalesce((p_workshop ->> 'setup_fee')::numeric, 0),
+    coalesce(p_workshop -> 'hardware', '[]'::jsonb)
   )
   returning id into v_id;
 

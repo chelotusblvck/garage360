@@ -12,7 +12,7 @@ import { getQuotationRepository } from "@/lib/quotations/repository";
 import { QuotationError, type Quotation } from "@/lib/quotations/types";
 import { SUPPORT_COOKIE, SUPPORT_MAX_AGE } from "@/lib/session-cookies";
 import { newWorkshopSchema, type NewWorkshopInput } from "@/lib/validations/schemas";
-import { PLANS, SETUPS, initialCharge } from "@/lib/workshops/plans";
+import { PLANS, SETUPS, hardwareLines, hardwareSelection, quoteTotals } from "@/lib/workshops/plans";
 import { getWorkshopRepository } from "@/lib/workshops/repository";
 import { WorkshopError, type GlobalMetrics, type WorkshopSummary } from "@/lib/workshops/types";
 
@@ -88,28 +88,36 @@ async function provisionWorkshop(
   createdBy: string,
   quotation?: Quotation
 ): Promise<ActionResult<CreatedWorkshop>> {
-  const charge = initialCharge(input.plan, input.setup_type);
+  // Montos de la tabla de precios del servidor (mismos que el catálogo de /login).
+  const totals = quoteTotals(input.plan, input.setup_type, hardwareLines(input.hardware));
   try {
     const { token, ticket } = newActivationToken();
-    const workshop = await getWorkshopRepository().create(input, charge.setupFee, ticket, quotation?.id);
+    const workshop = await getWorkshopRepository().create(input, totals.setupFee, ticket, quotation?.id);
+    const units = totals.lines.reduce((n, l) => n + l.qty, 0);
 
     // Auditoría: queda en el visor «Diagnóstico Dev» del taller nuevo.
     logEvent({
       level: "info",
       source: "billing_action",
-      message: `Taller creado${quotation ? " desde cotización" : ""} · plan ${PLANS[input.plan].label} · setup ${SETUPS[input.setup_type].short}`,
+      message:
+        `Taller creado${quotation ? " desde cotización" : ""} · plan ${PLANS[input.plan].label} · setup ${SETUPS[input.setup_type].short}` +
+        ` · ${units ? `${units} equipo(s)` : "sin equipos"}`,
       workshopId: workshop.id,
       metadata: {
         audit: quotation ? "quotation_approved" : "workshop_created",
         plan: input.plan,
-        plan_monthly: charge.monthly,
         setup_type: input.setup_type,
-        setup_fee: charge.setupFee,
-        initial_charge: charge.total,
+        setup_fee: totals.setupFee,
+        hardware: totals.lines.map(({ sku, qty, unit, subtotal }) => ({ sku, qty, unit, subtotal })),
+        hardware_total: totals.hardwareTotal,
+        // Pago único inicial (setup + equipamiento) y mensualidad, con IVA desglosado.
+        one_time: totals.initial,
+        monthly: totals.monthly,
         admin_email: input.admin_email,
+        activation_expires_at: ticket.expiresAt,
         created_by: createdBy,
         ...(quotation
-          ? { quotation_id: quotation.id, quoted_hardware: quotation.selected_hardware, quoted_initial_total: quotation.estimated_total_clp }
+          ? { quotation_id: quotation.id, quoted_initial_total: quotation.estimated_total_clp, quoted_monthly: quotation.monthly_clp }
           : {}),
       },
     });
@@ -160,6 +168,7 @@ export async function approveQuotation(quotationId: string): Promise<ActionResul
     phone: quotation.phone,
     admin_name: quotation.contact_name,
     admin_email: quotation.email,
+    hardware: hardwareSelection(quotation.selected_hardware),
   });
   // Datos que el formulario público ya validó: si no pasan, el contrato cambió.
   if (!parsed.success) return failure(`La cotización tiene datos inválidos: ${parsed.error.issues[0]?.message ?? "revisa sus campos"}`);

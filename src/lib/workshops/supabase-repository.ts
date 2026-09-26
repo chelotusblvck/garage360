@@ -2,12 +2,12 @@ import "server-only";
 import { logActionError } from "@/lib/logger";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import type { PlanKey, SetupType } from "./plans";
+import { hardwareLines, parseHardwareLines, type PlanKey, type SetupType } from "./plans";
 import { taxRateFromPercent } from "./shared";
 import { WorkshopError, type Workshop, type WorkshopRepository, type WorkshopSummary } from "./types";
 
 const WORKSHOP_COLUMNS =
-  "id, name, rut, address, city, phone, email, specialty, logo_url, hourly_rate, tax_rate, reception_policy, plan, setup_type, setup_fee, next_due_at, suspended_at, suspension_reason, onboarding_completed, onboarded_at, created_at";
+  "id, name, rut, address, city, phone, email, specialty, logo_url, hourly_rate, tax_rate, reception_policy, plan, setup_type, setup_fee, hardware, next_due_at, suspended_at, suspension_reason, onboarding_completed, onboarded_at, created_at";
 
 type Row = Record<string, unknown>;
 
@@ -41,6 +41,7 @@ function toWorkshop(r: Row): Workshop {
     plan: r.plan as PlanKey,
     setup_type: r.setup_type as SetupType,
     setup_fee: Number(r.setup_fee ?? 0),
+    hardware: parseHardwareLines(r.hardware),
     next_due_at: str(r.next_due_at),
     suspended_at: str(r.suspended_at),
     suspension_reason: str(r.suspension_reason),
@@ -83,6 +84,7 @@ export const supabaseWorkshopRepository: WorkshopRepository = {
     const { data, error } = await supabase.rpc("admin_create_workshop", {
       p_workshop: {
         ...input,
+        hardware: hardwareLines(input.hardware),
         setup_fee: setupFee,
         activation_token_hash: activation.tokenHash,
         activation_expires_at: activation.expiresAt,
