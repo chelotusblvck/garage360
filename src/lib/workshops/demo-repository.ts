@@ -4,6 +4,7 @@ import { WORKSHOP } from "@/lib/business";
 import { DEMO_ACCOUNTS, DEMO_NEW_WORKSHOP_ID, findDemoAccount } from "@/lib/demo/accounts";
 import { daysAgo, demoDb } from "@/lib/demo/db";
 import { addDays, todayKey } from "@/lib/datetime";
+import { demoQuotationStore } from "@/lib/quotations/demo-repository";
 import { rutCheckDigit } from "@/lib/rut";
 import { round2 } from "@/lib/sales/shared";
 import { PLANS, SETUPS } from "./plans";
@@ -201,12 +202,14 @@ export const demoWorkshopRepository: WorkshopRepository = {
     return { ...w };
   },
 
-  async create(input, setupFee, activation) {
+  async create(input, setupFee, activation, quotationId) {
     const s = demoWorkshopStore();
     const email = input.admin_email;
     const account = findDemoAccount(email);
     const taken = (account && account.role !== "client") || s.staff.some((m) => m.email === email);
     if (taken) throw new WorkshopError("Ese email ya es staff de un taller", "admin_email");
+    const quotation = quotationId ? demoQuotationStore().find((q) => q.id === quotationId) : null;
+    if (quotationId && quotation?.status !== "pending") throw new WorkshopError("La cotización ya fue procesada o no existe");
 
     const now = new Date().toISOString();
     const created = workshop({
@@ -234,6 +237,7 @@ export const demoWorkshopRepository: WorkshopRepository = {
       activation_expires_at: activation.expiresAt,
       created_at: now,
     });
+    if (quotation) Object.assign(quotation, { status: "approved", workshop_id: created.id, reviewed_at: now });
     return { ...created };
   },
 

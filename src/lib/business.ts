@@ -41,4 +41,7 @@ export const PLATFORM = {
   company: "Garage360",
   supportEmail: "soporte@garage360.cl",
   supportPhone: "+56 9 5555 0360",
+  /** Cotizaciones de alta (catálogo público de /login). */
+  salesEmail: "ventas@garage360.cl",
+  salesPhone: "+56 9 5555 0360",
 } as const;

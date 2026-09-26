@@ -2705,6 +2705,17 @@ begin
     from public.profiles p
    where ws.workshop_id = v_id and lower(p.email) = v_email and p.workshop_id = v_id;
 
+  -- Alta desde una cotización (sección 16): se aprueba en la misma transacción,
+  -- así una cotización nunca crea dos talleres.
+  if nullif(p_workshop ->> 'quotation_id', '') is not null then
+    update public.quotations
+       set status = 'approved', workshop_id = v_id, reviewed_at = now()
+     where id = (p_workshop ->> 'quotation_id')::uuid and status = 'pending';
+    if not found then
+      raise exception 'La cotización ya fue procesada o no existe' using errcode = 'P0002';
+    end if;
+  end if;
+
   return v_id;
 end;
 $$;
@@ -2806,7 +2817,7 @@ create table if not exists public.system_logs (
   metadata     jsonb not null default '{}'::jsonb,
   created_at   timestamptz not null default now(),
   constraint system_logs_level_valid check (level in ('info', 'warn', 'error')),
-  constraint system_logs_source_valid check (source in ('server_action', 'api', 'client_error', 'billing_action')),
+  constraint system_logs_source_valid check (source in ('server_action', 'api', 'client_error', 'billing_action', 'quotation_created')),
   constraint system_logs_message_length check (char_length(message) between 1 and 2000),
   constraint system_logs_stack_length check (stack_trace is null or char_length(stack_trace) <= 20000),
   constraint system_logs_metadata_object check (jsonb_typeof(metadata) = 'object'),
@@ -2819,7 +2830,7 @@ create index if not exists system_logs_level_created_idx on public.system_logs (
 -- billing_action (sección 15): recrea el check en instalaciones que ya tenían la tabla.
 alter table public.system_logs drop constraint if exists system_logs_source_valid;
 alter table public.system_logs add constraint system_logs_source_valid
-  check (source in ('server_action', 'api', 'client_error', 'billing_action'));
+  check (source in ('server_action', 'api', 'client_error', 'billing_action', 'quotation_created'));
 
 -- Quién llamó a write_system_log (null = anon): base del rate limit en SQL.
 alter table public.system_logs add column if not exists created_by uuid;
@@ -2855,7 +2866,7 @@ as $$
 declare
   v_metadata jsonb := coalesce(p_metadata, '{}'::jsonb);
   v_caller   uuid  := auth.uid();
-  v_source   text  := case when p_source in ('server_action', 'api', 'client_error', 'billing_action') then p_source else 'server_action' end;
+  v_source   text  := case when p_source in ('server_action', 'api', 'client_error', 'billing_action', 'quotation_created') then p_source else 'server_action' end;
   v_is_super boolean := public.is_superadmin();
   v_recent   integer;
   v_client   integer;
@@ -3109,3 +3120,116 @@ grant execute on function public.admin_set_workshop_suspension(uuid, boolean, te
 grant execute on function public.admin_update_workshop_plan(uuid, text, text, numeric) to authenticated;
 grant execute on function public.admin_regenerate_activation(uuid, text, timestamptz) to authenticated;
 grant execute on function public.lookup_activation(text) to anon, authenticated;
+
+-- =============================================================================
+-- 16. Cotizaciones de alta (catálogo público de /login)
+-- -----------------------------------------------------------------------------
+-- Prospectos que piden plan, modalidad de setup y equipamiento antes del alta.
+-- Llegan sin sesión (anon) por submit_quotation; solo el superadmin las lee y
+-- las procesa: «Aprobar y crear taller» llama a admin_create_workshop con
+-- quotation_id (sección 13), que la marca 'approved' en la misma transacción.
+-- Los montos los calcula la app (src/lib/workshops/plans.ts) y son referenciales:
+-- el cobro real del alta vuelve a salir de la tabla de precios del servidor.
+-- =============================================================================
+create table if not exists public.quotations (
+  id                  uuid primary key default gen_random_uuid(),
+  workshop_name       text not null,
+  contact_name        text not null,
+  email               text not null,
+  phone               text not null,
+  comuna              text,
+  plan_type           text not null,
+  setup_type          text not null,
+  selected_hardware   jsonb not null default '[]'::jsonb,   -- [{ "sku": "tablet_rugged_10", "qty": 2 }, …]
+  estimated_total_clp numeric(12, 0) not null,              -- pago inicial: setup + equipamiento (IVA incluido)
+  monthly_clp         numeric(12, 0) not null,              -- mensualidad del plan (IVA incluido)
+  status              text not null default 'pending',
+  workshop_id         uuid references public.workshops (id) on delete set null,
+  reviewed_at         timestamptz,
+  created_at          timestamptz not null default now(),
+  constraint quotations_plan_valid check (plan_type in ('starter', 'pro', 'enterprise')),
+  constraint quotations_setup_valid check (setup_type in ('diy', 'turnkey')),
+  constraint quotations_status_valid check (status in ('pending', 'approved', 'rejected')),
+  constraint quotations_hardware_array check (jsonb_typeof(selected_hardware) = 'array' and jsonb_array_length(selected_hardware) <= 10),
+  constraint quotations_amounts_range check (estimated_total_clp between 0 and 50000000 and monthly_clp between 0 and 5000000),
+  constraint quotations_text_length check (
+    char_length(workshop_name) between 2 and 120
+    and char_length(contact_name) between 2 and 120
+    and char_length(email) between 3 and 120
+    and char_length(phone) between 6 and 20
+    and (comuna is null or char_length(comuna) <= 60)
+  )
+);
+
+create index if not exists quotations_status_created_idx on public.quotations (status, created_at desc);
+create index if not exists quotations_email_created_idx on public.quotations (lower(email), created_at desc);
+
+alter table public.quotations enable row level security;
+
+drop policy if exists "quotations: superadmin read" on public.quotations;
+create policy "quotations: superadmin read" on public.quotations
+  for select to authenticated
+  using (public.is_superadmin());
+
+-- Pública (anon): registra la cotización. La clave anon es pública, así que se
+-- limita aquí también: 3 por email por hora y 60 por hora en total.
+create or replace function public.submit_quotation(p_quotation jsonb)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id    uuid;
+  v_email text := lower(trim(p_quotation ->> 'email'));
+begin
+  if (select count(*) from public.quotations
+       where lower(email) = v_email and created_at > now() - interval '1 hour') >= 3
+     or (select count(*) from public.quotations
+       where created_at > now() - interval '1 hour') >= 60 then
+    raise exception 'Demasiadas solicitudes: intenta más tarde' using errcode = '54000';
+  end if;
+
+  insert into public.quotations (
+    workshop_name, contact_name, email, phone, comuna, plan_type, setup_type,
+    selected_hardware, estimated_total_clp, monthly_clp
+  )
+  values (
+    trim(p_quotation ->> 'workshop_name'),
+    trim(p_quotation ->> 'contact_name'),
+    v_email,
+    trim(p_quotation ->> 'phone'),
+    nullif(trim(p_quotation ->> 'comuna'), ''),
+    p_quotation ->> 'plan_type',
+    p_quotation ->> 'setup_type',
+    coalesce(p_quotation -> 'selected_hardware', '[]'::jsonb),
+    (p_quotation ->> 'estimated_total_clp')::numeric,
+    (p_quotation ->> 'monthly_clp')::numeric
+  )
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
+create or replace function public.admin_reject_quotation(p_quotation uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_superadmin() then
+    raise exception 'Solo un superadministrador procesa cotizaciones' using errcode = '42501';
+  end if;
+  update public.quotations
+     set status = 'rejected', reviewed_at = now()
+   where id = p_quotation and status = 'pending';
+  if not found then
+    raise exception 'La cotización ya fue procesada o no existe' using errcode = 'P0002';
+  end if;
+end;
+$$;
+
+grant execute on function public.submit_quotation(jsonb) to anon, authenticated;
+grant execute on function public.admin_reject_quotation(uuid) to authenticated;

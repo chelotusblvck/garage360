@@ -78,8 +78,11 @@ export interface WorkshopRepository {
   get(id: string): Promise<Workshop | null>;
   /** Guarda el onboarding de forma atómica y marca onboarding_completed. */
   completeOnboarding(id: string, input: OnboardingInput): Promise<Workshop>;
-  /** Alta desde /admin: taller con onboarding pendiente + invitación a su admin. */
-  create(input: NewWorkshopInput, setupFee: number, activation: ActivationTicket): Promise<Workshop>;
+  /**
+   * Alta desde /admin: taller con onboarding pendiente + invitación a su admin.
+   * Con `quotationId`, aprueba esa cotización (pendiente) en la misma operación.
+   */
+  create(input: NewWorkshopInput, setupFee: number, activation: ActivationTicket, quotationId?: string): Promise<Workshop>;
   /** Invitación vigente para el token (su hash), o null si no existe, venció o ya se usó. */
   lookupActivation(tokenHash: string): Promise<ActivationInvite | null>;
   list(): Promise<WorkshopSummary[]>;

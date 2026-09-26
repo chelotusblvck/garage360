@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isValidRut, normalizeRut } from "@/lib/rut";
 import { BILLING_METHODS, PAYMENT_CONCEPTS } from "@/lib/billing/shared";
-import { PLAN_KEYS, SETUP_TYPES } from "@/lib/workshops/plans";
+import { HARDWARE_KEYS, MAX_HARDWARE_UNITS, PLAN_KEYS, SETUP_TYPES } from "@/lib/workshops/plans";
 
 /*
  * Esquemas Zod alineados 1:1 con supabase/schema.sql.
@@ -793,6 +793,26 @@ export const activationSchema = z
   })
   .refine((d) => d.password === d.confirmPassword, { path: ["confirmPassword"], message: "Las contraseñas no coinciden" });
 
+// ---------------------------------------------------------------------------
+// Cotizaciones de alta (formulario público de /login)
+// ---------------------------------------------------------------------------
+export const quotationSchema = z.object({
+  workshop_name: z.string().trim().min(2, "Ingresa el nombre del taller").max(120, "Máximo 120 caracteres"),
+  contact_name: z.string().trim().min(2, "Ingresa nombre y apellido").max(120, "Máximo 120 caracteres"),
+  email: z.email("Email inválido").trim().toLowerCase().max(120),
+  phone: z.string().trim().regex(PHONE_REGEX, "Teléfono inválido"),
+  comuna: optionalText(60),
+  plan: z.enum(PLAN_KEYS, { error: "Elige un plan" }),
+  setup_type: z.enum(SETUP_TYPES, { error: "Elige la modalidad de implementación" }),
+  /** Unidades por equipo (0 = no lo quiere). */
+  hardware: z.record(
+    z.enum(HARDWARE_KEYS),
+    z.number({ error: "Cantidad inválida" }).int("Cantidad inválida").min(0).max(MAX_HARDWARE_UNITS, `Máximo ${MAX_HARDWARE_UNITS} unidades`)
+  ),
+  /** Honeypot anti-bots: el campo está oculto, una persona lo deja vacío. */
+  website: z.string().max(200).optional(),
+});
+
 export const onboardingSchema = z
   .object({
     profile: workshopProfileSchema,
@@ -827,6 +847,8 @@ export type WorkshopPaymentValues = z.input<typeof workshopPaymentSchema>;
 export type WorkshopPaymentInput = z.output<typeof workshopPaymentSchema>;
 export type NewWorkshopValues = z.input<typeof newWorkshopSchema>;
 export type NewWorkshopInput = z.output<typeof newWorkshopSchema>;
+export type QuotationValues = z.input<typeof quotationSchema>;
+export type QuotationInput = z.output<typeof quotationSchema>;
 export type OnboardingValues = z.input<typeof onboardingSchema>;
 export type OnboardingInput = z.output<typeof onboardingSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;

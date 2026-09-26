@@ -18,6 +18,7 @@ function fail(error: PostgrestError): never {
     throw new WorkshopError("Ese email ya es staff de un taller", "admin_email");
   }
   if (error.code === "23514") throw new WorkshopError("Algún dato no cumple el formato esperado");
+  if (error.code === "P0002") throw new WorkshopError(error.message);
   if (error.code === "42501") throw new WorkshopError("No tienes permisos para esta operación");
   logActionError("workshops · Supabase", error);
   throw new WorkshopError("No se pudo completar la operación. Intenta de nuevo.");
@@ -75,15 +76,17 @@ export const supabaseWorkshopRepository: WorkshopRepository = {
     return workshop;
   },
 
-  async create(input, setupFee, activation) {
+  async create(input, setupFee, activation, quotationId) {
     const supabase = await createClient();
-    // RPC atómica: taller + invitación del admin (o vínculo inmediato si ya tiene cuenta).
+    // RPC atómica: taller + invitación del admin (o vínculo inmediato si ya tiene
+    // cuenta) + aprobación de la cotización de origen, si la hay.
     const { data, error } = await supabase.rpc("admin_create_workshop", {
       p_workshop: {
         ...input,
         setup_fee: setupFee,
         activation_token_hash: activation.tokenHash,
         activation_expires_at: activation.expiresAt,
+        quotation_id: quotationId ?? null,
       },
     });
     if (error) fail(error);

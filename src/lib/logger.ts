@@ -67,7 +67,7 @@ function takeLogToken(source: LogSource, key: string) {
 }
 
 /** IP del cliente según el proxy (Vercel / Supabase Edge envían x-forwarded-for). */
-async function clientIp() {
+export async function clientIp() {
   try {
     const h = await headers();
     return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "desconocida";

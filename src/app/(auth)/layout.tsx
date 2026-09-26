@@ -17,7 +17,8 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           <Wordmark size="lg" />
         </Link>
         <div className="flex flex-1 items-center justify-center py-6">
-          <div className="w-full max-w-sm">{children}</div>
+          {/* Pantallas con data-wide (catálogo y cotización de /login) usan una columna más ancha. */}
+          <div className="w-full max-w-sm has-[[data-wide]]:max-w-2xl">{children}</div>
         </div>
         <p className="text-xs text-muted-foreground">
           © {new Date().getFullYear()} MotoOps · una plataforma <span className="font-medium text-foreground">Garage360</span>

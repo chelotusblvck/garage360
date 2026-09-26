@@ -1,7 +1,7 @@
 /* Logs del sistema y diagnóstico por taller (solo superadmin). Compartido por cliente y servidor. */
 
 export const LOG_LEVELS = ["error", "warn", "info"] as const;
-export const LOG_SOURCES = ["server_action", "api", "client_error", "billing_action"] as const;
+export const LOG_SOURCES = ["server_action", "api", "client_error", "billing_action", "quotation_created"] as const;
 
 export type LogLevel = (typeof LOG_LEVELS)[number];
 export type LogSource = (typeof LOG_SOURCES)[number];

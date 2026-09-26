@@ -2,11 +2,13 @@ import type { Metadata } from "next";
 import { DEMO_ACCOUNTS, DEMO_PASSWORD } from "@/lib/demo/accounts";
 import { isSupabaseConfigured } from "@/lib/env";
 import { LoginForm, type DemoAccountHint } from "./login-form";
+import { LoginTabs } from "./login-tabs";
+import { parseLoginTab } from "./tabs";
 
 export const metadata: Metadata = { title: "Iniciar sesión" };
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
-  const { next, portal } = await searchParams;
+  const { next, portal, tab } = await searchParams;
   const demo: DemoAccountHint[] | undefined = isSupabaseConfigured()
     ? undefined
     : DEMO_ACCOUNTS.map(({ email, hint, role }) => ({
@@ -16,10 +18,15 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
       }));
 
   return (
-    <LoginForm
-      next={typeof next === "string" ? next : undefined}
-      initialPortal={portal === "superadmin" || next?.toString().startsWith("/admin") ? "superadmin" : "workshop"}
-      demo={demo ? { accounts: demo, password: DEMO_PASSWORD } : undefined}
+    <LoginTabs
+      initialTab={parseLoginTab(tab)}
+      login={
+        <LoginForm
+          next={typeof next === "string" ? next : undefined}
+          initialPortal={portal === "superadmin" || next?.toString().startsWith("/admin") ? "superadmin" : "workshop"}
+          demo={demo ? { accounts: demo, password: DEMO_PASSWORD } : undefined}
+        />
+      }
     />
   );
 }
